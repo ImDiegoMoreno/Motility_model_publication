@@ -1299,12 +1299,25 @@ m_beta <- brm(
 )
 
 
+
+```
+
+save model and call it
+
+```{r}
+# After fitting
+#saveRDS(m_beta, file = "models/m_beta.rds")
+m_beta <- readRDS("models/m_beta.rds")
+```
+
+check
+
+```{r}
 # Diagnostics
 summary(m_beta)
 pp_check(m_beta, ndraws = 100, type = "dens_overlay")
 pp_check(m_beta, type = "stat_grouped", stat = "mean", group = "season_bin")
 pp_check(m_beta, type = "stat_grouped", stat = "sd", group = "season_bin")
-
 ```
 
 
@@ -1361,38 +1374,45 @@ logit_mean
 
 
 ```
-Use the priors
+Model commented out for rerunning the code
 
 ```{r}
 
 
-# --- 3. Priors (reuse same as Lophelia, just adjust intercept if you want) ---
-priors_beta_het_desmo <- c(
-  prior(student_t(3, -1.679086, 1), class = "Intercept"), # or recompute logit mean for Desmo
-  prior(normal(0, 0.75), class = "b"),
-  # Phi (precision) part on log scale
-  prior(normal(log(10), 1), class = "Intercept", dpar = "phi"),  # median φ ≈ 10, 95% ≈ [1.4, 71]
-  prior(normal(0, 0.3), class = "b", dpar = "phi")
-)
+# # --- 3. Priors (reuse same as Lophelia, just adjust intercept if you want) ---
+# priors_beta_het_desmo <- c(
+#   prior(student_t(3, -1.679086, 1), class = "Intercept"), # or recompute logit mean for Desmo
+#   prior(normal(0, 0.75), class = "b"),
+#   # Phi (precision) part on log scale
+#   prior(normal(log(10), 1), class = "Intercept", dpar = "phi"),  # median φ ≈ 10, 95% ≈ [1.4, 71]
+#   prior(normal(0, 0.3), class = "b", dpar = "phi")
+# )
+# 
+# # Just ask: what priors does this model expect?
+# get_prior(
+#   formula = bf_beta_het_desmo, 
+#   data    = model_data_beta_desmo,
+#   family  = Beta(link = "logit", link_phi = "log")
+# )
+# 
+# # --- 4. Fit the model ---
+# brm_ml_Desmo_beta <- brm(
+#   formula = bf_beta_het_desmo,
+#   data = model_data_beta_desmo,
+#   family = Beta(link = "logit", link_phi = "log"),
+#   prior = priors_beta_het_desmo,
+#   chains = 4, iter = 4000, warmup = 2000,
+#   cores = 4,
+#   control = list(adapt_delta = 0.98, max_treedepth = 12),
+#   seed = 1234
+# )
+```
+Save model and Call it
 
-# Just ask: what priors does this model expect?
-get_prior(
-  formula = bf_beta_het_desmo, 
-  data    = model_data_beta_desmo,
-  family  = Beta(link = "logit", link_phi = "log")
-)
-
-# --- 4. Fit the model ---
-brm_ml_Desmo_beta <- brm(
-  formula = bf_beta_het_desmo,
-  data = model_data_beta_desmo,
-  family = Beta(link = "logit", link_phi = "log"),
-  prior = priors_beta_het_desmo,
-  chains = 4, iter = 4000, warmup = 2000,
-  cores = 4,
-  control = list(adapt_delta = 0.98, max_treedepth = 12),
-  seed = 1234
-)
+```{r}
+# After fitting
+#saveRDS(brm_ml_Desmo_beta, file = "models/brm_ml_Desmo_beta.rds")
+brm_ml_Desmo_beta <- readRDS("models/brm_ml_Desmo_beta.rds")
 ```
 
 
