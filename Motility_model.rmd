@@ -1266,38 +1266,39 @@ logit_mean
 ```
 
 
-Code based on the logit_mean
+Model (Commented out so it does not run everytime)
+
 ```{r}
 # compute observed logit mean (you already did this)
 obs_mean <- mean(model_data_beta$Proportion_Motile, na.rm = TRUE)
 logit_mean <- qlogis(obs_mean)   # = -1.857484
 
-# --- Priors (regularising) ---
-priors_recommended <- c(
-  # Mean (mu) part on logit scale
-  prior(student_t(3, -1.8575, 1), class = "Intercept"),
-  prior(normal(0, 0.75), class = "b"),
-
-  # Phi (precision) part on log scale
-  prior(normal(log(10), 1), class = "Intercept", dpar = "phi"),  # median φ ≈ 10, 95% ≈ [1.4, 71]
-  prior(normal(0, 0.3), class = "b", dpar = "phi")
-)
-
-# --- Check priors ---
-get_prior(bf_beta_het, data = model_data_beta,
-          family = Beta(link = "logit", link_phi = "log"))
-
-# --- Fit model ---
-m_beta <- brm(
-  formula = bf_beta_het,
-  data    = model_data_beta,
-  family  = Beta(link = "logit", link_phi = "log"),  # <-- important change here
-  prior   = priors_recommended,
-  chains  = 4, iter = 4000, warmup = 2000,
-  control = list(adapt_delta = 0.98, max_treedepth = 12),
-  seed    = 5678
-)
-
+# # --- Priors (regularising) ---
+# priors_recommended <- c(
+#   # Mean (mu) part on logit scale
+#   prior(student_t(3, -1.8575, 1), class = "Intercept"),
+#   prior(normal(0, 0.75), class = "b"),
+# 
+#   # Phi (precision) part on log scale
+#   prior(normal(log(10), 1), class = "Intercept", dpar = "phi"),  # median φ ≈ 10, 95% ≈ [1.4, 71]
+#   prior(normal(0, 0.3), class = "b", dpar = "phi")
+# )
+# 
+# # --- Check priors ---
+# get_prior(bf_beta_het, data = model_data_beta,
+#           family = Beta(link = "logit", link_phi = "log"))
+# 
+# # --- Fit model ---
+# m_beta <- brm(
+#   formula = bf_beta_het,
+#   data    = model_data_beta,
+#   family  = Beta(link = "logit", link_phi = "log"),  # <-- important change here
+#   prior   = priors_recommended,
+#   chains  = 4, iter = 4000, warmup = 2000,
+#   control = list(adapt_delta = 0.98, max_treedepth = 12),
+#   seed    = 5678
+# )
+# 
 
 
 ```
