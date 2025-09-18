@@ -1563,6 +1563,7 @@ ggplot(combined_draws, aes(x = .value, y = season_bin)) +
 
 ```
 
+%progressive 
 
 Percent progressive
 
@@ -1580,158 +1581,152 @@ model_data_beta_prog_lophelia <- db3_max %>%
 summary(model_data_beta_prog_lophelia$Proportion_Progressive_Transformed)
 
 ```
-model formula
-```{r}
-library(brms)
 
+%progressive 
+```{r}
+
+
+
+# --- 1. Define formula (same structure as motility model) ---
 bf_beta_prog_loph <- bf(
   Proportion_Progressive_Transformed ~ season_bin,
   phi ~ season_bin
 )
 
-```
-
-priors
-
-```{r}
+# --- 2. Compute observed mean for centering the Intercept prior ---
 obs_mean_prog_loph <- mean(model_data_beta_prog_lophelia$Proportion_Progressive, na.rm = TRUE)
 logit_mean_prog_loph <- qlogis(obs_mean_prog_loph)
+logit_mean_prog_loph  # check the value (e.g. ~ -1.40)
 
+# --- 3. Priors (regularising, same structure as motility models) ---
 priors_prog_loph <- c(
+  # Mean (mu) part
   prior(student_t(3, -1.404282, 1), class = "Intercept"),
   prior(normal(0, 0.75), class = "b"),
-  prior(gamma(2, 0.1), class = "Intercept", dpar = "phi"),
-  prior(normal(0, 0.5), class = "b", dpar = "phi")
+
+  # Phi (precision) part on log scale
+  prior(normal(log(10), 1), class = "Intercept", dpar = "phi"),
+  prior(normal(0, 0.3), class = "b", dpar = "phi")
 )
 
-```
-
-fit model
-```{r}
+# --- 4. Fit model ---
 m_beta_prog_loph <- brm(
   formula = bf_beta_prog_loph,
-  data = model_data_beta_prog_lophelia,
-  family = Beta(link = "logit"),
-  prior = priors_prog_loph,
-  chains = 4, iter = 4000, warmup = 2000,
+  data    = model_data_beta_prog_lophelia,
+  family  = Beta(link = "logit", link_phi = "log"),  # <- log link for phi
+  prior   = priors_prog_loph,
+  chains  = 4, iter = 4000, warmup = 2000,
   control = list(adapt_delta = 0.98, max_treedepth = 12),
-  seed = 42
+  seed    = 42
 )
-
 ```
 
-Estimated marginal means
+checks
 
 ```{r}
-library(emmeans)
-
-emm_beta_prog_loph <- emmeans(m_beta_prog_loph, ~ season_bin, type = "response")
-emm_beta_prog_loph_df <- as.data.frame(summary(emm_beta_prog_loph))
-
-# Convert to %
-emm_beta_prog_loph_df$response <- emm_beta_prog_loph_df$response * 100
-emm_beta_prog_loph_df$lower.HPD <- emm_beta_prog_loph_df$lower.HPD * 100
-emm_beta_prog_loph_df$upper.HPD <- emm_beta_prog_loph_df$upper.HPD * 100
-emm_beta_prog_loph_df$Species <- "Lophelia"
-
+# For Lophelia progressive
+pp_check(m_beta_prog_loph, ndraws = 100, type = "dens_overlay")
+pp_check(m_beta_prog_loph, type = "stat_grouped", stat = "mean", group = "season_bin")
+pp_check(m_beta_prog_loph, type = "stat_grouped", stat = "sd",   group = "season_bin")
 ```
 
-Now Desmo
+
+Desmo
 
 ```{r}
-# Desmo
+# --- 1. Prepare data for Desmo progressive ---
 model_data_beta_prog_desmo <- db3_max %>%
   filter(Species == "Desmo", time_after_min_round < 15) %>%
   mutate(
     Proportion_Progressive = Percent_Progressive / 100,
     N_obs = n(),
-    Proportion_Progressive_Transformed = (Proportion_Progressive * (N_obs - 1) + 0.5) / N_obs
+    # Apply Smithson & Verkuilen (2006) transformation to keep inside (0,1)
+    Proportion_Progressive_Transformed = 
+      (Proportion_Progressive * (N_obs - 1) + 0.5) / N_obs
   )
 
+summary(model_data_beta_prog_desmo$Proportion_Progressive_Transformed)  # quick check
+
+# --- 2. Define the Beta regression model for Desmo progressive ---
+bf_beta_prog_desmo <- bf(
+  Proportion_Progressive_Transformed ~ season_bin,
+  phi ~ season_bin
+)
+
+# --- 3. Compute observed mean (for intercept prior centring) ---
 obs_mean_prog_desmo <- mean(model_data_beta_prog_desmo$Proportion_Progressive, na.rm = TRUE)
 logit_mean_prog_desmo <- qlogis(obs_mean_prog_desmo)
+logit_mean_prog_desmo
 
+```
+
+Desmo
+
+```{r}
+library(brms)
+
+
+# --- 3. Priors (regularising, same structure as motility models) ---
 priors_prog_desmo <- c(
+  # Mean (mu) part
   prior(student_t(3, -1.755874, 1), class = "Intercept"),
   prior(normal(0, 0.75), class = "b"),
-  prior(gamma(2, 0.1), class = "Intercept", dpar = "phi"),
-  prior(normal(0, 0.5), class = "b", dpar = "phi")
+
+  # Phi (precision) part on log scale
+  prior(normal(log(10), 1), class = "Intercept", dpar = "phi"),
+  prior(normal(0, 0.3), class = "b", dpar = "phi")
 )
 
-# Fit model
+# --- 4. Fit model ---
 m_beta_prog_desmo <- brm(
-  formula = bf(
-    Proportion_Progressive_Transformed ~ season_bin,
-    phi ~ season_bin
-  ),
-  data = model_data_beta_prog_desmo,
-  family = Beta(link = "logit"),
-  prior = priors_prog_desmo,
-  chains = 4, iter = 4000, warmup = 2000,
+  formula = bf_beta_prog_desmo,
+  data    = model_data_beta_prog_desmo,
+  family  = Beta(link = "logit", link_phi = "log"),  # <- log link for phi
+  prior   = priors_prog_desmo,
+  chains  = 4, iter = 4000, warmup = 2000,
   control = list(adapt_delta = 0.98, max_treedepth = 12),
-  seed = 123
+  seed    = 42
 )
 
-
 ```
-
-Check model
+checks
 
 ```{r}
-pp_check(m_beta_prog_desmo, type = "stat_grouped", group = "season_bin", stat="mean",ndraws = 100)
-print(pp_check(m_beta_prog_desmo, type = "dens_overlay", ndraws = 100))
-plot(m_beta_prog_desmo)
+# For Desmo progressive
+pp_check(m_beta_prog_desmo, ndraws = 100, type = "dens_overlay")
+pp_check(m_beta_prog_desmo, type = "stat_grouped", stat = "mean", group = "season_bin")
+pp_check(m_beta_prog_desmo, type = "stat_grouped", stat = "sd",   group = "season_bin")
 ```
 
-EMMs
+ploting 
 
 ```{r}
-# EMMs
-emm_beta_prog_desmo <- emmeans(m_beta_prog_desmo, ~ season_bin, type = "response")
-emm_beta_prog_desmo_df <- as.data.frame(summary(emm_beta_prog_desmo))
+# --- 2. Helper function (same as before) ---
+extract_mu_draws <- function(fit, species_name) {
+  draws <- fit %>%
+    spread_draws(b_Intercept, b_season_binmid, b_season_binstart) %>%
+    mutate(
+      end   = plogis(b_Intercept),                          # baseline (reference season)
+      mid   = plogis(b_Intercept + b_season_binmid),
+      start = plogis(b_Intercept + b_season_binstart)
+    ) %>%
+    select(.draw, end, mid, start) %>%
+    pivot_longer(-.draw, names_to = "season_bin", values_to = ".value") %>%
+    mutate(
+      Species = species_name,
+      .value = .value * 100  # convert to percentage
+    )
+  return(draws)
+}
 
-# Convert to %
-emm_beta_prog_desmo_df$response <- emm_beta_prog_desmo_df$response * 100
-emm_beta_prog_desmo_df$lower.HPD <- emm_beta_prog_desmo_df$lower.HPD * 100
-emm_beta_prog_desmo_df$upper.HPD <- emm_beta_prog_desmo_df$upper.HPD * 100
-emm_beta_prog_desmo_df$Species <- "Desmo"
-```
+# --- 3. Extract posterior draws for both species ---
+draws_desmo_prog    <- extract_mu_draws(m_beta_prog_desmo, "Desmo")
+draws_lophelia_prog <- extract_mu_draws(m_beta_prog_loph, "Lophelia")
 
+# --- 4. Combine ---
+combined_draws_prog <- bind_rows(draws_desmo_prog, draws_lophelia_prog)
 
-combine
-```{r}
-emm_all_prog <- bind_rows(emm_beta_prog_loph_df, emm_beta_prog_desmo_df)
-
-```
-
-plot posterior draws
-
-```{r}
-library(tidybayes)
-
-# Lophelia
-draws_loph_prog <- emmeans(m_beta_prog_loph, ~ season_bin, type = "link") %>%
-  gather_emmeans_draws() %>%
-  mutate(Species = "Lophelia", .value = plogis(.value) * 100)
-
-# Desmo
-draws_desmo_prog <- emmeans(m_beta_prog_desmo, ~ season_bin, type = "link") %>%
-  gather_emmeans_draws() %>%
-  mutate(Species = "Desmo", .value = plogis(.value) * 100)
-
-combined_draws_prog <- bind_rows(draws_loph_prog, draws_desmo_prog)
-
-# Define species display
-species_levels <- c("Desmo", "Lophelia")
-species_strip <- c("italic('D. dianthus')", "italic('D. pertusum')")
-species_legend <- c("D. dianthus", "D. pertusum")
-
-```
-
-
-summary plus plot
-
-```{r}
+# --- 5. Summaries for labels ---
 combined_summary_prog <- combined_draws_prog %>%
   group_by(Species, season_bin) %>%
   summarise(
@@ -1739,111 +1734,54 @@ combined_summary_prog <- combined_draws_prog %>%
     lower  = quantile(.value, 0.025),
     upper  = quantile(.value, 0.975),
     .groups = "drop"
-  ) %>%
-  mutate(
-    Species_strip = factor(Species, levels = species_levels, labels = species_strip)
   )
 
-library(dplyr)
-library(ggplot2)
-library(tidybayes)
-library(ggtext)
-
-# --- Define species display options ---
+# --- 6. Species labels and colours ---
 species_levels <- c("Desmo", "Lophelia")
-species_legend <- c("D. dianthus", "D. pertusum")
+species_labels <- c("Desmo" = "italic('D. dianthus')",
+                    "Lophelia" = "italic('D. pertusum')")
 species_colors <- c("Desmo" = "#9467bd", "Lophelia" = "#f3c300")
 
-# --- Prepare summary stats for labels ---
-combined_summary_prog <- combined_draws_prog %>%
-  group_by(Species, season_bin) %>%
-  summarise(
-    median = median(.value),
-    lower  = quantile(.value, 0.025),
-    upper  = quantile(.value, 0.975),
-    .groups = "drop"
-  )
-# Add parsed expression labels
-combined_draws_prog <- combined_draws_prog %>%
-  mutate(Species_label = recode(Species,
-    "Desmo" = "italic('D. dianthus')",
-    "Lophelia" = "italic('D. pertusum')"
-  ))
-
-combined_summary_prog <- combined_summary_prog %>%
-  mutate(Species_label = recode(Species,
-    "Desmo" = "italic('D. dianthus')",
-    "Lophelia" = "italic('D. pertusum')"
-  ))
-# --- The Plot ---
-ggplot(data = combined_draws_prog, mapping = aes(x = .value, y = season_bin)) +
-
-  # Posterior densities (half-eyes)
+# --- 7. Plot ---
+ggplot(combined_draws_prog, aes(x = .value, y = season_bin)) +
   stat_halfeye(
-    mapping = aes(fill = Species, slab_alpha = after_stat(level)),
+    aes(fill = Species, slab_alpha = after_stat(level)),
     .width = c(0.66, 0.95),
     point_interval = "median_hdi",
     trim = TRUE
   ) +
-
-  # Colour scale
-  scale_fill_manual(
-    values = species_colors,
-    breaks = species_levels,
-    labels = species_legend
-  ) +
-
+  scale_fill_manual(values = species_colors, breaks = species_levels,
+                    labels = c("D. dianthus", "D. pertusum")) +
   scale_slab_alpha_discrete(range = c(0.4, 0.8), guide = "none") +
-
-  # Facet by species
-  facet_wrap(
-  ~ Species_label,
-  ncol = 1,
-  labeller = label_parsed
-)+
+  facet_wrap(~ Species, ncol = 1,
+             labeller = labeller(Species = as_labeller(species_labels, default = label_parsed))) +
 
   # Lower bound text
   geom_text(
     data = combined_summary_prog,
-    mapping = aes(x = lower, y = season_bin, label = sprintf("%.1f", lower)),
-    inherit.aes = FALSE,
-    hjust = 1.2,
-    size = 3.5,
-    color = "grey30"
+    aes(x = lower, y = season_bin, label = sprintf("%.1f", lower)),
+    inherit.aes = FALSE, hjust = 1.2, size = 3.5, color = "grey30"
   ) +
-
   # Upper bound text
   geom_text(
     data = combined_summary_prog,
-    mapping = aes(x = upper, y = season_bin, label = sprintf("%.1f", upper)),
-    inherit.aes = FALSE,
-    hjust = -0.2,
-    size = 3.5,
-    color = "grey30"
+    aes(x = upper, y = season_bin, label = sprintf("%.1f", upper)),
+    inherit.aes = FALSE, hjust = -0.2, size = 3.5, color = "grey30"
   ) +
-
-  # Median value (bold using ggtext)
+  # Median (bold rich text)
   geom_richtext(
     data = combined_summary_prog,
-    mapping = aes(
-      x = median, y = season_bin,
-      label = paste0("<b>", sprintf("%.1f", median), "</b>")
-    ),
-    fill = NA,
-    label.color = NA,
-    inherit.aes = FALSE,
-    size = 3.5,
-    vjust = 1.1,
-    color = "black"
+    aes(x = median, y = season_bin,
+        label = paste0("<b>", sprintf("%.1f", median), "</b>")),
+    fill = NA, label.color = NA,
+    inherit.aes = FALSE, size = 3.5, vjust = 1.1, color = "black"
   ) +
 
   labs(
     title = "Posterior Distribution of Mean Percent Progressive Motile",
     x = "Estimated Mean Percent Progressive Motile (%)",
-    y = NULL,
-    fill = NULL
+    y = NULL, fill = NULL
   ) +
-
   theme_classic(base_size = 14) +
   theme(
     strip.background = element_blank(),
@@ -1851,10 +1789,8 @@ ggplot(data = combined_draws_prog, mapping = aes(x = .value, y = season_bin)) +
     panel.spacing = unit(1.2, "lines"),
     legend.position = "right"
   )
-
-
-
 ```
+
 
 Now VAPs
 
