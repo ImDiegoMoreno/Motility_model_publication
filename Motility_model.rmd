@@ -1,0 +1,1989 @@
+---
+title: "script_3"
+author: "Diego Moreno"
+date: "2025-09-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+read data
+
+```{r}
+db<-read.delim("data/sperm_motility_with_samples_2025.txt")
+head(db)
+```
+
+load libraries
+
+```{r}
+library(dplyr);library(ggplot2)
+```
+make sure data is in the correct format
+
+
+```{r}
+str(db)
+```
+
+change to hour format
+
+```{r}
+library(chron)
+```
+
+change format
+
+```{r}
+# Replace NA with 0
+#db[is.na(db)] <- 0 
+
+#remove rows with 0
+# Select columns from 'Total_Sperm' to the last column
+#db <- db %>%
+  #filter(if_all(Total_Sperm:ncol(db), ~ . != 0))
+
+# Replace commas with dots and convert to numeric for columns from 'Total_Sperm' to the last column
+db <- db %>%
+  mutate(across(Total_Sperm:Avg_Tot_Motile_VSL, ~ as.numeric(gsub(",", ".", .))))
+
+# View the result
+print(db)
+
+db$time_after_spawning.min <- as.numeric(gsub(",",".", db$time_after_spawning.min))
+db$time_after_min_round <- as.numeric(gsub(",",".", db$time_after_min_round))
+# Append ':00' to times that only have hours and minutes
+db$hour_spawning <- ifelse(nchar(db$hour_spawning) == 5, paste0(db$hour_spawning, ":00"), db$hour_spawning)
+db$hour_video <- ifelse(nchar(db$hour_video) == 5, paste0(db$hour_video, ":00"), db$hour_video)
+db$time_after_spawning <- ifelse(nchar(db$time_after_spawning) == 5, paste0(db$time_after_spawning, ":00"), db$time_after_spawning)
+# Convert the columns to time-only format using chron
+db$hour_spawning <- chron(times = db$hour_spawning)
+db$hour_video <- chron(times = db$hour_video)
+db$time_after_spawning <- chron(times = db$time_after_spawning)
+# Check the structure of the data
+str(db)
+```
+test to see if it worked
+
+```{r}
+db$hour_video - db$hour_spawning
+```
+
+Calculate the rate of slow sperm
+
+```{r}
+db$percent_slow<-(db$Slow_Sperm/db$Total_Paths)*100
+```
+
+filter data so I just have 3 replicates per male per day
+```{r}
+str(db)
+
+# --- 0. Load Libraries & Inspect Data ---
+library(dplyr)
+library(lubridate) # For year() later if needed
+
+db2<-db
+# Ensure db2 is loaded in your environment
+# Display column names and structure to confirm column names and types
+print("Original Column names:")
+colnames(db2)
+print("Original Data structure:")
+str(db2)
+
+db2 %>%
+  filter(date == "2025-03-02",
+         Species == "Lophelia",
+         tube == 1,
+         male == 79)
+
+# --- 1. Data Type Conversions & Cleaning ---
+# Ensure correct data types before filtering/grouping
+db2 <- db2 %>%
+  mutate(
+    date = as.Date(date),
+    tube = factor(tube),
+    male = factor(male),
+    Species = factor(Species),
+    egg_present = factor(trimws(egg_present)), #trimws(egg_present): It first removes any leading or trailing whitespace from the egg_present column
+    Z.video = factor(trimws(Z.video)),  # Clean up Z.video here
+    across(
+      c(
+        time_after_spawning.min, Total_Sperm, Total_Paths, Slow_Sperm,
+        Motile_Sperm, Progressive_Motile_Sperm, Total_motile_sperm,
+        Percent_Motile, Percent_Progressive, Percent_Total_Motile,
+        Avg_Motile_VCL, Avg_Motile_VAP, Avg_Motile_VSL,
+        Avg_Prog_Motile_VCL, Avg_Prog_Motile_VAP, Avg_Prog_Motile_VSL,
+        Avg_Tot_Motile_VCL, Avg_Tot_Motile_VAP, Avg_Tot_Motile_VSL,
+        percent_slow
+      ),
+      ~ suppressWarnings(as.numeric(.))
+    )
+  )
+
+# Check for conversion issues (e.g., many NAs)
+ summary(db2)
+colnames(db2)
+str(db2)
+unique(db2$Z.video)
+db2 %>%
+  group_by(Z.video) %>%
+  summarise(n = n())
+
+#### check 
+db2 %>%
+  filter(date == "2025-03-02",
+         Species == "Lophelia",
+         tube == 1,
+         male == 79)
+
+# Last filter correct
+
+#filter out down when I have mid as well
+# db3 <- db2 %>%
+#   group_by(date, drop_ID, Species, tube, male, egg_present, time_after_min_round) %>%
+#   filter(!(any(Z.video == "mid") & Z.video == "down")) %>%
+#   ungroup()
+
+db3 <- db2 %>%
+  group_by(date, drop_ID, Species, tube, male, egg_present, time_after_min_round) %>%
+  filter(Z.video == "down") %>%
+  ungroup()
+
+db3 %>%filter(date == "2025-03-02",
+         Species == "Lophelia",
+         tube == 1,
+         male == 79)
+
+db3 %>%
+  group_by(Z.video) %>%
+  summarise(n = n())
+
+## so far it works
+#View(db3)
+
+## average the values for the ones with more than one measurement per drop
+# this one disapepears some time after spawning
+
+# db3_avg <- db3 %>%
+#   group_by(date, drop_ID, Species, tube, male, egg_present, time_after_min_round, Z.video) %>%
+#   summarise(across(where(is.numeric), mean, na.rm = TRUE), .groups = "drop_last")
+
+# db3_avg <- db3 %>%
+#   group_by(date, drop_ID, Species, tube, male, egg_present, time_after_min_round, Z.video) %>%
+#   summarise(across(where(is.numeric), mean, na.rm = TRUE))
+
+db3_avg <- db3 %>%
+  group_by(date, drop_ID, Species, tube, male, egg_present, time_after_min_round, Z.video) %>%
+  summarise(
+    across(c(Total_Sperm, Total_Paths, Motile_Sperm, Slow_Sperm,Progressive_Motile_Sperm,Total_motile_sperm,
+             Percent_Motile, Percent_Progressive, Percent_Total_Motile,,Avg_Motile_VCL, Avg_Motile_VAP, Avg_Motile_VSL,
+             Avg_Prog_Motile_VCL,Avg_Prog_Motile_VAP,Avg_Prog_Motile_VSL,Avg_Tot_Motile_VCL,Avg_Tot_Motile_VAP, Avg_Tot_Motile_VSL,percent_slow),
+           mean, na.rm = TRUE),
+    across(starts_with("Avg_Prog"), ~mean(., na.rm = TRUE), .names = "mean_{.col}"),
+    .groups = "drop"
+  )
+
+colnames(db3)
+#check
+db3_avg %>%
+  filter(date == "2025-03-02",
+         Species == "Lophelia",
+         tube == 1,
+         male == 79)
+
+## leave just one tube per male spawning event
+
+db3_max <- db3_avg %>%
+  group_by(date, drop_ID, Species, male, egg_present, time_after_min_round, Z.video) %>%
+  slice_max(order_by = Percent_Total_Motile, n = 1, with_ties = FALSE) %>%
+  ungroup()
+
+##check
+db3_max %>%
+  filter(date == "2025-03-02",
+         Species == "Lophelia",
+         tube == 1,
+         male == 79)
+
+
+head(db3_max)
+colnames(db3_max)
+
+```
+
+visualising distributions
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(ggdist)
+
+# Example: plot Percent_Motile
+db3_max %>% group_by(date, drop_ID, Species, male, time_after_min_round, egg_present) %>%
+  summarise(mean_motile = mean(Percent_Motile, na.rm = TRUE), .groups = "drop") %>%
+  ggplot(aes(x = time_after_min_round,
+             y = mean_motile,
+             colour = egg_present,
+             group = interaction(male, egg_present))) +
+  geom_line(alpha = 0.4) +
+  geom_point(size = 2) +
+  facet_wrap(~ Species, scales = "free_y") +
+  theme_minimal(base_size = 14) +
+  labs(x = "Time after spawning (min)",
+       y = "Percent Motile Sperm",
+       colour = "Eggs present")
+
+
+```
+
+testing just one single event
+
+```{r}
+event_plot <- db3_max %>%
+  filter(date == "2025-03-02",
+         Species == "Lophelia",
+         tube == 1,
+         male == 79) %>%
+  group_by(time_after_min_round, egg_present) %>%
+  #summarise(mean_motile = mean(Percent_Motile, na.rm = TRUE), .groups = "drop") %>%
+  ggplot(aes(x = time_after_min_round,
+             y = Percent_Progressive,
+             colour = egg_present,
+             group = egg_present)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 3) +
+  theme_minimal(base_size = 14) +
+  labs(title = "Spawning event: 2025-03-02, Lophelia, male 1, tube 79",
+       x = "Time after spawning (min)",
+       y = "Percent Motile Sperm",
+       colour = "Eggs present")
+
+print(event_plot)
+
+
+
+```
+
+
+```{r}
+db3_max %>%
+  filter(date == "2025-03-02",
+         Species == "Lophelia",
+         tube == 1,
+         male == 79)
+```
+
+
+ploting curves
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(patchwork)
+
+# Define a function to create plots for different motility parameters with custom y-limits
+plot_motility <- function(data, y_var, y_label, y_limits) {
+  ggplot(data, aes(x = time_after_min_round, y = .data[[y_var]], colour = Species)) +
+    geom_smooth(method = "lm", formula = y ~ poly(x, 2), se = TRUE) +
+    geom_point(alpha=0.7) +
+    scale_colour_manual(
+      values = c("Lophelia" = "#f3c300", "Desmo" = "#9467bd"),  # Yellow and purple
+      labels = c("Lophelia" = expression(italic("D. pertusum")), "Desmo" = expression(italic("D. dianthus")))
+    ) +
+    theme_classic() +
+    labs(
+      x = "Time after spawning (hrs)", 
+      y = y_label
+    ) +
+    ylim(y_limits) +
+    theme(
+      axis.text.x = element_text(hjust = 1, size = 12),  
+      axis.text.y = element_text(size = 12),  
+      axis.title.x = element_text(size = 12),  
+      axis.title.y = element_text(size = 12),  
+      strip.text = element_text(size = 12, face = "bold"),  
+      legend.position = "bottom",  
+      legend.title = element_text(size = 12, face = "bold"),
+      legend.text = element_text(size = 12),
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5)
+    )
+}
+
+# Create individual plots with specific y-limits
+p1 <- plot_motility(db3_max, "Percent_Total_Motile", "Percent Total Motile (%)", c(0, 100))
+p2 <- plot_motility(db3_max, "Percent_Motile", "Percent Motile (%)", c(0, 100))
+p3 <- plot_motility(db3_max, "Percent_Progressive", "Percent Progressive (%)", c(0, 100))
+p4 <- plot_motility(db3_max, "Avg_Motile_VAP", "Motile VAP (µm/s)", c(20, 80))
+p5 <- plot_motility(db3_max, "Avg_Prog_Motile_VAP", "P. Motile VAP (µm/s)", c(70, 160))
+p6 <- plot_motility(db3_max, "Avg_Tot_Motile_VAP", "Avg Total Motile VAP (µm/s)", c(20, 130))
+p7 <- plot_motility(db3_max, "percent_slow","Percent_Slow", c(0,100))
+
+# Combine all plots into one figure, with a single legend at the bottom
+# final_plot <- (p1 | p2 | p3) / (p4 | p5 | p6) + 
+#   plot_layout(guides = "collect") & theme(legend.position = "bottom")
+
+#less plots
+final_plot <- ( p2 | p3) / (p4 | p5 ) + 
+  plot_layout(guides = "collect") & theme(legend.position = "bottom")
+
+#total plots
+final_plot2 <- p1 | p6  + 
+  plot_layout(guides = "collect") & theme(legend.position = "bottom")
+
+# Print the final combined plot
+print(final_plot2)
+print(final_plot)
+print(p7)
+```
+
+
+idetify the high values of percent progressive in Lophelia
+
+```{r}
+db3_max %>% filter(Species=="Lophelia" & Percent_Progressive>30)
+```
+
+
+trying ridges
+
+```{r}
+#install.packages("ggridges")
+library(ggridges)
+# Load necessary libraries
+library(ggplot2)
+library(patchwork)
+library(ggridges) # New library for ridge plots
+library(dplyr)    # For data manipulation, especially binning time
+
+# Assuming db3_max is already loaded and contains your data
+# Let's create a binned time variable for the y-axis of the ridge plot
+# We'll use cut() to create intervals. Adjust breaks as needed for your data distribution.
+db3_max_binned <- db3_max %>%
+  mutate(time_bin = cut(time_after_min_round, 
+                        breaks = c(0, 5, 10, 15, 20, 25, 30, 35, 40), # Define your desired bins
+                        labels = c("0-5", "5-10", "10-15", "15-20", "20-25", "25-30", "30-35", "35-40"), # Labels for bins
+                        include.lowest = TRUE, right = FALSE)) %>% # include_lowest ensures 0 is included, right=FALSE means [a,b)
+  # Convert to factor and reverse levels so earliest times are at the bottom
+  mutate(time_bin = factor(time_bin, levels = rev(levels(time_bin))))
+
+# If you prefer to have the time bins ordered from bottom to top (0-5 at bottom),
+# you would simply use `levels = levels(time_bin)` instead of `rev(levels(time_bin))`.
+# I'm using `rev` because `ggridges` typically stacks from bottom up, so reversing
+# the factor levels makes the visual time progression more intuitive.
+# Define a function to create ridge plots for different motility parameters
+
+#db3_max_binned<-db3_max_binned %>% filter(egg_present=="no")
+
+
+plot_ridge <- function(data, x_var, x_label, title_label) {
+  ggplot(data, aes(x = .data[[x_var]], y = time_bin, fill = Species)) +
+    geom_density_ridges(
+      alpha = 0.8,              # Transparency
+      scale = 2,                # Overlap of the ridges (adjust as needed)
+      rel_min_height = 0.01,    # Minimum height for density to be drawn      
+    ) +
+    coord_cartesian(xlim = c(0, NA))+
+    scale_fill_manual(
+      values = c("Lophelia" = "#f3c300", "Desmo" = "#9467bd"),  # Yellow and purple
+      labels = c("Lophelia" = expression(italic("D. pertusum")), "Desmo" = expression(italic("D. dianthus")))
+    ) +
+    theme_ridges(grid = FALSE) + # A theme optimized for ridge plots from ggridges
+    labs(
+      title = title_label,
+      x = x_label,
+      y = "Time after spawning (hrs) Bins"
+    ) +
+    theme(
+      legend.position = "bottom",
+      legend.title = element_text(size = 12, face = "bold"),
+      legend.text = element_text(size = 12),
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      axis.title.x = element_text(size = 12),
+      axis.title.y = element_text(size = 12),
+      axis.text.x = element_text(size = 10),
+      axis.text.y = element_text(size = 10)
+    )
+}
+
+# Create individual ridge plots
+ridge_p_motile <- plot_ridge(db3_max_binned, "Percent_Motile", "Percent Motile (%)", "Percent Motile over Time")
+ridge_p_progressive <- plot_ridge(db3_max_binned, "Percent_Progressive", "Percent Progressive (%)", "Percent Progressive over Time")
+ridge_motile_vap <- plot_ridge(db3_max_binned, "Avg_Motile_VAP", "Motile VAP (µm/s)", "Motile VAP over Time")
+ridge_p_motile_vap <- plot_ridge(db3_max_binned, "Avg_Prog_Motile_VAP", "P. Motile VAP (µm/s)", "Progressive Motile VAP over Time")
+
+
+# Combine the plots using patchwork
+combined_ridge_plots <- (ridge_p_motile | ridge_p_progressive) / (ridge_motile_vap | ridge_p_motile_vap) +
+  plot_layout(guides = "collect") & theme(legend.position = "bottom")
+
+print(combined_ridge_plots)
+```
+
+
+```{r}
+ggplot(db3_max_binned, aes(x = time_bin, y = Percent_Motile, fill = Species)) +
+  geom_violin(trim = TRUE, alpha = 0.6) +
+  geom_boxplot(width = 0.1, outlier.size = 0.5, alpha = 0.7) +
+  scale_fill_manual(values = c("Lophelia" = "#f3c300", "Desmo" = "#9467bd")) +
+  theme_minimal()
+
+
+ggplot(db3_max_binned, aes(x = time_bin, y = Percent_Motile, fill = Species)) +
+  stat_halfeye(point_interval = median_qi, alpha = 0.6) +
+  scale_fill_manual(values = c("Lophelia" = "#f3c300", "Desmo" = "#9467bd")) +
+  theme_minimal()
+
+db3_summary <- db3_max_binned %>%
+  group_by(Species, time_bin) %>%
+  summarise(
+    mean_motile = mean(Percent_Motile, na.rm = TRUE),
+    se = sd(Percent_Motile, na.rm = TRUE)/sqrt(n())
+  )
+
+ggplot(db3_summary, aes(x = time_bin, y = mean_motile, group = Species, colour = Species)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = mean_motile - se, ymax = mean_motile + se), width = 0.2) +
+  scale_colour_manual(values = c("Lophelia" = "#f3c300", "Desmo" = "#9467bd")) +
+  theme_minimal()
+
+ggplot(db3_max_binned, aes(x = Species, y = time_bin, fill = Percent_Motile)) +
+  geom_tile() +
+  scale_fill_viridis_c() +
+  theme_minimal()
+
+
+```
+
+
+```{r}
+db3_summary <- db3_max_binned %>%
+  group_by(Species, time_bin) %>%
+  summarise(
+    mean_motile = mean(Percent_Motile, na.rm = TRUE),
+    sd_motile = sd(Percent_Motile, na.rm = TRUE),
+    n = n(),
+    se = sd_motile / sqrt(n),
+    ci_lower = mean_motile - qt(0.975, df = n-1) * se,
+    ci_upper = mean_motile + qt(0.975, df = n-1) * se
+  )
+
+db3_summary <- db3_summary %>%
+  mutate(time_bin = factor(time_bin, levels = c("0-5", "5-10", "10-15", "15-20", "20-25", "25-30", "30-35", "35-40")))
+
+
+ggplot(db3_summary, aes(x = time_bin, y = mean_motile, group = Species, colour = Species)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), width = 0.2) +
+  scale_colour_manual(values = c("Lophelia" = "#f3c300", "Desmo" = "#9467bd")) +
+  theme_minimal()
+
+```
+
+
+Percent progressive 
+
+```{r}
+# Summarise Percent_Progressive by Species and time_bin
+db3_summary_prog <- db3_max_binned %>%
+  group_by(Species, time_bin) %>%
+  summarise(
+    mean_progressive = mean(Percent_Progressive, na.rm = TRUE),
+    sd_progressive = sd(Percent_Progressive, na.rm = TRUE),
+    n = n(),
+    se = sd_progressive / sqrt(n),
+    ci_lower = mean_progressive - qt(0.975, df = n-1) * se,
+    ci_upper = mean_progressive + qt(0.975, df = n-1) * se
+  )
+
+# Ensure time_bin is in the correct order
+db3_summary_prog <- db3_summary_prog %>%
+  mutate(time_bin = factor(time_bin, levels = c("0-5", "5-10", "10-15", "15-20", "20-25", "25-30", "30-35", "35-40")))
+
+# Plot Percent_Progressive over time
+ggplot(db3_summary_prog, aes(x = time_bin, y = mean_progressive, group = Species, colour = Species)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), width = 0.2) +
+  scale_colour_manual(values = c("Lophelia" = "#f3c300", "Desmo" = "#9467bd")) +
+  labs(
+    x = "Time after spawning (hrs) Bins",
+    y = "Mean Percent Progressive (%)",
+    colour = "Species"
+  ) +
+  theme_minimal()
+
+```
+
+function
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+plot_time_bin <- function(data, var, y_label) {
+  
+  # Summarise mean, SE, and 95% CI by Species and time_bin
+  summary_data <- data %>%
+    group_by(Species, time_bin) %>%
+    summarise(
+      mean_val = mean(.data[[var]], na.rm = TRUE),
+      sd_val = sd(.data[[var]], na.rm = TRUE),
+      n = n(),
+      se = sd_val / sqrt(n),
+      ci_lower = mean_val - qt(0.975, df = n-1) * se,
+      ci_upper = mean_val + qt(0.975, df = n-1) * se,
+      .groups = "drop"
+    ) %>%
+    mutate(time_bin = factor(time_bin, levels = c("0-5", "5-10", "10-15", "15-20", "20-25", 
+                                                  "25-30", "30-35", "35-40")))
+  
+  # Create the plot
+  p <- ggplot(summary_data, aes(x = time_bin, y = mean_val, group = Species, colour = Species)) +
+    geom_line(size = 1.2) +
+    geom_point(size = 3) +
+    geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), width = 0.2) +
+    scale_colour_manual(values = c("Lophelia" = "#f3c300", "Desmo" = "#9467bd")) +
+    labs(
+      x = "Time after spawning (hrs) Bins",
+      y = y_label,
+      colour = "Species"
+    ) +
+    theme_minimal()
+  
+  return(p)
+}
+
+```
+
+usage
+
+```{r}
+# Percentages
+p_motile <- plot_time_bin(db3_max_binned, "Percent_Motile", "Mean Percent Motile (%)")
+p_progressive <- plot_time_bin(db3_max_binned, "Percent_Progressive", "Mean Percent Progressive (%)")
+p_total_motile <- plot_time_bin(db3_max_binned, "Percent_Total_Motile", "Mean Percent Total Motile (%)")
+p_percent_slow <- plot_time_bin(db3_max_binned, "percent_slow", "Mean Percent Slow (%)")
+
+# Average Motile velocities
+p_avg_motile_vcl <- plot_time_bin(db3_max_binned, "Avg_Motile_VCL", "Mean Motile VCL (µm/s)")
+p_avg_motile_vap <- plot_time_bin(db3_max_binned, "Avg_Motile_VAP", "Mean Motile VAP (µm/s)")
+p_avg_motile_vsl <- plot_time_bin(db3_max_binned, "Avg_Motile_VSL", "Mean Motile VSL (µm/s)")
+
+# Average Progressive Motile velocities
+p_avg_prog_motile_vcl <- plot_time_bin(db3_max_binned, "Avg_Prog_Motile_VCL", "Mean Progressive Motile VCL (µm/s)")
+p_avg_prog_motile_vap <- plot_time_bin(db3_max_binned, "Avg_Prog_Motile_VAP", "Mean Progressive Motile VAP (µm/s)")
+p_avg_prog_motile_vsl <- plot_time_bin(db3_max_binned, "Avg_Prog_Motile_VSL", "Mean Progressive Motile VSL (µm/s)")
+
+# Average Total Motile velocities
+p_avg_tot_motile_vcl <- plot_time_bin(db3_max_binned, "Avg_Tot_Motile_VCL", "Mean Total Motile VCL (µm/s)")
+p_avg_tot_motile_vap <- plot_time_bin(db3_max_binned, "Avg_Tot_Motile_VAP", "Mean Total Motile VAP (µm/s)")
+p_avg_tot_motile_vsl <- plot_time_bin(db3_max_binned, "Avg_Tot_Motile_VSL", "Mean Total Motile VSL (µm/s)")
+
+```
+
+```{r}
+print(p_motile)
+print(p_progressive)
+print(p_total_motile)
+print(p_percent_slow)
+
+print(p_avg_motile_vap)
+print(p_avg_prog_motile_vap)
+print(p_avg_tot_motile_vap)
+```
+
+
+seasons 
+
+```{r}
+# Ensure date column is in Date format
+db3_max <- db3_max %>%
+  mutate(date = as.Date(date)) %>%
+  mutate(
+    season_bin = case_when(
+      # For Desmo species
+      Species == "Desmo" & format(date, "%m-%d") >= "06-30" & format(date, "%m-%d") <= "07-07" ~ "start",
+      Species == "Desmo" & format(date, "%m-%d") >= "07-08" & format(date, "%m-%d") <= "07-19" ~ "mid",
+      Species == "Desmo" & format(date, "%m-%d") >= "07-20" ~ "end",
+      
+      # For Lophelia species
+      Species == "Lophelia" & format(date, "%m-%d") >= "01-01" & format(date, "%m-%d") <= "02-10" ~ "start",
+      Species == "Lophelia" & format(date, "%m-%d") >= "02-11" & format(date, "%m-%d") <= "03-01" ~ "mid",
+      Species == "Lophelia" & format(date, "%m-%d") >= "03-02" ~ "end",
+      
+      # Default case: NA (in case no conditions match)
+      TRUE ~ NA_character_
+    )
+  )
+```
+
+create a year column 
+
+```{r}
+db3_max <- db3_max %>%
+  mutate(year = lubridate::year(date))
+```
+
+Barplot
+
+```{r}
+db3_max %>%
+  filter(Species == "Lophelia") %>% filter(time_after_min_round < 15 ) %>% 
+  count(season_bin)
+
+db3_max %>%
+  filter(Species == "Lophelia") %>% 
+  count(season_bin)
+
+db3_max %>%
+  filter(Species == "Desmo") %>% filter(time_after_min_round < 15 ) %>% 
+  count(season_bin)
+
+db3_max %>%
+  filter(Species == "Desmo") %>% 
+  count(season_bin)
+
+# Summarize data for Lophelia
+db_summary_loph <- db3_max %>%
+  filter(Species == "Lophelia", time_after_min_round < 15) %>%
+  mutate(season_bin = factor(season_bin, levels = c("start", "mid", "end"))) %>%  # <-- Order here
+  group_by(year, season_bin) %>%
+  summarise(
+    mean_Percent_Motile = mean(Percent_Motile, na.rm = TRUE),
+    se_Percent_Motile = sd(Percent_Motile, na.rm = TRUE) / sqrt(n()),
+    count = n()
+  )
+
+# Lophelia Plot (NO LEGEND)
+Plot_percentMot_loph <- ggplot(db_summary_loph, aes(x = season_bin, y = mean_Percent_Motile, fill = season_bin)) +
+  geom_col(alpha = 0.8, width = 0.5, position = position_dodge(0.9)) +
+  geom_errorbar(aes(ymin = mean_Percent_Motile - se_Percent_Motile, 
+                    ymax = mean_Percent_Motile + se_Percent_Motile), 
+                width = 0.2, position = position_dodge(0.9)) +
+  facet_wrap(~year, scales = "fixed") +
+  scale_fill_manual(values = c("start" = "#3B9AB2", "mid" = "#F1A340", "end" = "#5B8A3C")) +
+  theme_minimal() +
+  labs(
+    title = expression(italic("D. pertusum")),
+    x = NULL,
+    y = "Average Percent Motile (%)"  
+  ) +
+  theme_classic()+
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 14),  # X-axis text larger
+    axis.text.y = element_text(size = 14),  # Y-axis text larger
+    axis.title.x = element_text(size = 16, face = "bold"),  # X-axis title bigger & bold
+    axis.title.y = element_text(size = 16, face = "bold"),  # Y-axis title bigger & bold
+    strip.text = element_text(size = 16, face = "bold"),  # Facet labels larger & bold
+    legend.position = "none",  # No legend for Lophelia
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5)  # Title bigger & centered
+  )
+
+# Summarize data for Desmophyllum
+
+db_summary_desmo <- db3_max %>%
+  filter(Species == "Desmo", time_after_min_round < 15) %>%
+  mutate(season_bin = factor(season_bin, levels = c("start", "mid", "end"))) %>%  # <-- Order here
+  group_by(year, season_bin) %>%
+  summarise(
+    mean_Percent_Motile = mean(Percent_Motile, na.rm = TRUE),
+    se_Percent_Motile = sd(Percent_Motile, na.rm = TRUE) / sqrt(n()),
+    count = n()
+  )
+
+# Desmophyllum Plot (KEEPS LEGEND)
+Plot_percentMot_Desmo <- ggplot(db_summary_desmo, aes(x = season_bin, y = mean_Percent_Motile, fill = season_bin)) +
+  geom_col(alpha = 0.8, width = 0.5, position = position_dodge(0.9)) +
+  geom_errorbar(aes(ymin = mean_Percent_Motile - se_Percent_Motile, 
+                    ymax = mean_Percent_Motile + se_Percent_Motile), 
+                width = 0.2, position = position_dodge(0.9)) +
+  facet_wrap(~year, scales = "fixed") +
+  scale_fill_manual(values = c("start" = "#3B9AB2", "mid" = "#F1A340", "end" = "#5B8A3C")) +
+  theme_minimal() +
+  labs(
+    title = expression(italic("D. dianthus")),
+    x = NULL,
+    y = NULL  
+  ) +
+  theme_classic()+
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 14),  # X-axis text larger
+    axis.text.y = element_text(size = 14),  # Y-axis text larger
+    axis.title.x = element_text(size = 16, face = "bold"),  # X-axis title bigger & bold
+    axis.title.y = element_text(size = 16, face = "bold"),  # Y-axis title bigger & bold
+    strip.text = element_text(size = 16, face = "bold"),  # Facet labels larger & bold
+    legend.position = "bottom",  # Keep legend here
+    legend.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12),
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5)  # Title bigger & centered
+  )
+
+# Combine plots (COLLECT LEGEND PROPERLY)
+final_plot <- (Plot_percentMot_loph | Plot_percentMot_Desmo) + theme(legend.position = "none") + 
+  plot_layout(guides = "collect")
+
+# Add shared y-axis label and other title customization
+final_plot <- final_plot + plot_annotation(
+  title = "Average Percent Motile Across Seasons",
+  caption = "Error bars represent standard error",
+  theme = theme(
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 14, hjust = 0.5),
+    plot.caption = element_text(size = 12, hjust = 0)
+  )
+) 
+
+# Final plot with shared title, caption, and all customized themes
+final_plot
+
+```
+
+adding the number of samples per bar
+
+```{r}
+db_summary_loph <- db3_max %>%
+  filter(Species == "Lophelia", time_after_min_round < 15) %>%
+  mutate(season_bin = factor(season_bin, levels = c("start", "mid", "end"))) %>%  # <-- Order here
+  group_by(year, season_bin) %>%
+  summarise(
+    mean_Percent_Motile = mean(Percent_Motile, na.rm = TRUE),
+    se_Percent_Motile = sd(Percent_Motile, na.rm = TRUE) / sqrt(n()),
+    count = n()
+  )
+
+Plot_percentMot_loph <- ggplot(db_summary_loph, aes(x = season_bin, y = mean_Percent_Motile, fill = season_bin)) +
+  geom_col(alpha = 0.8, width = 0.5, position = position_dodge(0.9)) +
+  geom_errorbar(aes(ymin = mean_Percent_Motile - se_Percent_Motile, 
+                    ymax = mean_Percent_Motile + se_Percent_Motile), 
+                width = 0.2, position = position_dodge(0.9)) +
+  geom_text(aes(label = count), vjust = -0.5, size = 4) +  # <- This adds the count text
+  facet_wrap(~year, scales = "fixed") +
+  scale_fill_manual(values = c("start" = "#3B9AB2", "mid" = "#F1A340", "end" = "#5B8A3C")) +
+  theme_minimal() +
+  labs(
+    title = expression(italic("D. pertusum")),
+    x = NULL,
+    y = "Average Percent Motile (%)"  
+  ) +
+  theme_classic()+
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+    axis.text.y = element_text(size = 14),
+    axis.title.x = element_text(size = 16, face = "bold"),
+    axis.title.y = element_text(size = 16, face = "bold"),
+    strip.text = element_text(size = 16, face = "bold"),
+    legend.position = "none",
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5)
+  )
+print(Plot_percentMot_loph)
+
+
+db_summary_desmo <- db3_max %>%
+  filter(Species == "Desmo", time_after_min_round < 15) %>%
+  mutate(season_bin = factor(season_bin, levels = c("start", "mid", "end"))) %>%  # <-- Order here
+  group_by(year, season_bin) %>%
+  summarise(
+    mean_Percent_Motile = mean(Percent_Motile, na.rm = TRUE),
+    se_Percent_Motile = sd(Percent_Motile, na.rm = TRUE) / sqrt(n()),
+    count = n()
+  )
+
+Plot_percentMot_Desmo <- ggplot(db_summary_desmo, aes(x = season_bin, y = mean_Percent_Motile, fill = season_bin)) +
+  geom_col(alpha = 0.8, width = 0.5, position = position_dodge(0.9)) +
+  geom_errorbar(aes(ymin = mean_Percent_Motile - se_Percent_Motile, 
+                    ymax = mean_Percent_Motile + se_Percent_Motile), 
+                width = 0.2, position = position_dodge(0.9)) +
+  geom_text(aes(label = count), vjust = -0.5, size = 4) +  # <- This adds the count text
+  facet_wrap(~year, scales = "fixed") +
+  scale_fill_manual(values = c("start" = "#3B9AB2", "mid" = "#F1A340", "end" = "#5B8A3C")) +
+  theme_minimal() +
+  labs(
+    title = expression(italic("D. dianthus")),
+    x = NULL,
+    y = "Average Percent Motile (%)"  
+  ) +
+  theme_classic()+
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+    axis.text.y = element_text(size = 14),
+    axis.title.x = element_text(size = 16, face = "bold"),
+    axis.title.y = element_text(size = 16, face = "bold"),
+    strip.text = element_text(size = 16, face = "bold"),
+    legend.position = "none",
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5)
+  )
+print(Plot_percentMot_Desmo)
+
+# Combine plots (COLLECT LEGEND PROPERLY)
+final_plot <- (Plot_percentMot_loph | Plot_percentMot_Desmo) + theme(legend.position = "none") + 
+  plot_layout(guides = "collect")
+
+# Add shared y-axis label and other title customization
+final_plot <- final_plot + plot_annotation(
+  title = "Average Percent Motile Across Seasons",
+  caption = "Error bars represent standard error",
+  theme = theme(
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 14, hjust = 0.5),
+    plot.caption = element_text(size = 12, hjust = 0)
+  )
+) 
+
+# Final plot with shared title, caption, and all customized themes
+final_plot
+
+
+```
+
+Try to make a function to get this plot for many parameters
+
+```{r}
+
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+
+make_sperm_plot <- function(df, variable_name) {
+  
+  # Label dictionary
+  y_labels <- c(
+    "Total_motile_sperm" = "Total Motile Sperm (count)",
+    "Percent_Motile" = "Average Percent Motile (%)",
+    "Percent_Progressive" = "Average Percent Progressive (%)",
+    "Percent_Total_Motile" = "Average Percent Total Motile (%)",
+    "Avg_Motile_VCL" = "Average Motile VCL (µm/s)",
+    "Avg_Motile_VAP" = "Average Motile VAP (µm/s)",
+    "Avg_Motile_VSL" = "Average Motile VSL (µm/s)",
+    "Avg_Prog_Motile_VCL" = "Average Progressive VCL (µm/s)",
+    "Avg_Prog_Motile_VAP" = "Average Progressive VAP (µm/s)",
+    "Avg_Prog_Motile_VSL" = "Average Progressive VSL (µm/s)",
+    "Avg_Tot_Motile_VCL" = "Average Total VCL (µm/s)",
+    "Avg_Tot_Motile_VAP" = "Average Total VAP (µm/s)",
+    "Avg_Tot_Motile_VSL" = "Average Total VSL (µm/s)",
+    "percent_slow" = "Percent Slow (%)"
+  )
+  
+  ylab <- y_labels[variable_name]
+
+  # Helper to summarise by species
+  summarise_species <- function(species_name) {
+    df %>%
+      filter(Species == species_name, time_after_min_round < 15) %>%
+      mutate(season_bin = factor(season_bin, levels = c("start", "mid", "end"))) %>%
+      group_by(year, season_bin) %>%
+      summarise(
+        mean_val = mean(.data[[variable_name]], na.rm = TRUE),
+        se_val = sd(.data[[variable_name]], na.rm = TRUE) / sqrt(n()),
+        count = n(),
+        .groups = "drop"
+      )
+  }
+
+  # Lophelia
+  df_loph <- summarise_species("Lophelia")
+
+  plot_loph <- ggplot(df_loph, aes(x = season_bin, y = mean_val, fill = season_bin)) +
+    geom_col(alpha = 0.8, width = 0.5, position = position_dodge(0.9)) +
+    geom_errorbar(aes(ymin = mean_val - se_val, ymax = mean_val + se_val),
+                  width = 0.2, position = position_dodge(0.9)) +
+    facet_wrap(~year, scales = "fixed") +
+    scale_fill_manual(values = c("start" = "#3B9AB2", "mid" = "#F1A340", "end" = "#5B8A3C")) +
+    labs(
+      title = expression(italic("D. pertusum")),
+      x = NULL,
+      y = ylab
+    ) +
+    theme_classic() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+      axis.text.y = element_text(size = 14),
+      axis.title.x = element_text(size = 16, face = "bold"),
+      axis.title.y = element_text(size = 16, face = "bold"),
+      strip.text = element_text(size = 16, face = "bold"),
+      legend.position = "none",
+      plot.title = element_text(size = 18, face = "bold", hjust = 0.5)
+    )
+
+  # Desmo
+  df_desmo <- summarise_species("Desmo")
+
+  plot_desmo <- ggplot(df_desmo, aes(x = season_bin, y = mean_val, fill = season_bin)) +
+    geom_col(alpha = 0.8, width = 0.5, position = position_dodge(0.9)) +
+    geom_errorbar(aes(ymin = mean_val - se_val, ymax = mean_val + se_val),
+                  width = 0.2, position = position_dodge(0.9)) +
+    facet_wrap(~year, scales = "fixed") +
+    scale_fill_manual(values = c("start" = "#3B9AB2", "mid" = "#F1A340", "end" = "#5B8A3C")) +
+    labs(
+      title = expression(italic("D. dianthus")),
+      x = NULL,
+      y = NULL
+    ) +
+    theme_classic() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+      axis.text.y = element_text(size = 14),
+      axis.title.x = element_text(size = 16, face = "bold"),
+      axis.title.y = element_text(size = 16, face = "bold"),
+      strip.text = element_text(size = 16, face = "bold"),
+      legend.position = "none",
+      legend.title = element_text(size = 14, face = "bold"),
+      legend.text = element_text(size = 12),
+      plot.title = element_text(size = 18, face = "bold", hjust = 0.5)
+    )
+
+  # Combine
+  final <- (plot_loph | plot_desmo) + plot_layout(guides = "collect")
+
+  # Add annotation
+  final + plot_annotation(
+    title = ylab,
+    caption = "Error bars represent standard error",
+    theme = theme(
+      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+      plot.caption = element_text(size = 12, hjust = 0)
+    )
+  )
+}
+
+
+```
+
+use the function 
+
+```{r}
+
+make_sperm_plot(db3_max, "Percent_Motile")
+make_sperm_plot(db3_max, "Percent_Progressive")
+make_sperm_plot(db3_max, "Percent_Total_Motile")
+make_sperm_plot(db3_max, "Avg_Motile_VCL")
+make_sperm_plot(db3_max, "Avg_Motile_VAP")
+make_sperm_plot(db3_max, "Avg_Motile_VSL")
+make_sperm_plot(db3_max, "Avg_Prog_Motile_VCL")
+make_sperm_plot(db3_max, "Avg_Prog_Motile_VAP")
+make_sperm_plot(db3_max, "Avg_Prog_Motile_VSL")
+make_sperm_plot(db3_max, "Avg_Tot_Motile_VCL")
+make_sperm_plot(db3_max, "Avg_Tot_Motile_VAP")
+make_sperm_plot(db3_max, "Avg_Tot_Motile_VSL")
+make_sperm_plot(db3_max, "percent_slow")
+```
+now without dividing by year
+
+```{r}
+make_sperm_plot <- function(df, variable_name) {
+
+  # Label dictionary
+  y_labels <- c(
+    "Total_motile_sperm" = "Total Motile Sperm (count)",
+    "Percent_Motile" = "Average Percent Motile (%)",
+    "Percent_Progressive" = "Average Percent Progressive (%)",
+    "Percent_Total_Motile" = "Average Percent Total Motile (%)",
+    "Avg_Motile_VCL" = "Average Motile VCL (µm/s)",
+    "Avg_Motile_VAP" = "Average Motile VAP (µm/s)",
+    "Avg_Motile_VSL" = "Average Motile VSL (µm/s)",
+    "Avg_Prog_Motile_VCL" = "Average Progressive VCL (µm/s)",
+    "Avg_Prog_Motile_VAP" = "Average Progressive VAP (µm/s)",
+    "Avg_Prog_Motile_VSL" = "Average Progressive VSL (µm/s)",
+    "Avg_Tot_Motile_VCL" = "Average Total VCL (µm/s)",
+    "Avg_Tot_Motile_VAP" = "Average Total VAP (µm/s)",
+    "Avg_Tot_Motile_VSL" = "Average Total VSL (µm/s)",
+    "percent_slow" = "Percent Slow (%)"
+  )
+  
+  ylab <- y_labels[variable_name]
+
+  # Helper to summarise by species
+  summarise_species <- function(species_name) {
+    df %>%
+      filter(Species == species_name, time_after_min_round < 15) %>%
+      mutate(season_bin = factor(season_bin, levels = c("start", "mid", "end"))) %>%
+      group_by(season_bin) %>%
+      summarise(
+        mean_val = mean(.data[[variable_name]], na.rm = TRUE),
+        se_val = sd(.data[[variable_name]], na.rm = TRUE) / sqrt(n()),
+        count = n(),
+        .groups = "drop"
+      )
+  }
+
+  # Lophelia
+  df_loph <- summarise_species("Lophelia")
+
+  plot_loph <- ggplot(df_loph, aes(x = season_bin, y = mean_val, fill = season_bin)) +
+    geom_col(alpha = 0.8, width = 0.5) +
+    geom_errorbar(aes(ymin = mean_val - se_val, ymax = mean_val + se_val),
+                  width = 0.2) +
+    scale_fill_manual(values = c("start" = "#3B9AB2", "mid" = "#F1A340", "end" = "#5B8A3C")) +
+    labs(
+      title = expression(italic("D. pertusum")),
+      x = NULL,
+      y = ylab
+    ) +
+    theme_classic() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+      axis.text.y = element_text(size = 14),
+      axis.title.x = element_text(size = 16, face = "bold"),
+      axis.title.y = element_text(size = 16, face = "bold"),
+      legend.position = "none",
+      plot.title = element_text(size = 18, face = "bold", hjust = 0.5)
+    )
+
+  # Desmo
+  df_desmo <- summarise_species("Desmo")
+
+  plot_desmo <- ggplot(df_desmo, aes(x = season_bin, y = mean_val, fill = season_bin)) +
+    geom_col(alpha = 0.8, width = 0.5) +
+    geom_errorbar(aes(ymin = mean_val - se_val, ymax = mean_val + se_val),
+                  width = 0.2) +
+    scale_fill_manual(values = c("start" = "#3B9AB2", "mid" = "#F1A340", "end" = "#5B8A3C")) +
+    labs(
+      title = expression(italic("D. dianthus")),
+      x = NULL,
+      y = NULL
+    ) +
+    theme_classic() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+      axis.text.y = element_text(size = 14),
+      axis.title.x = element_text(size = 16, face = "bold"),
+      axis.title.y = element_text(size = 16, face = "bold"),
+      legend.position = "none",
+      plot.title = element_text(size = 18, face = "bold", hjust = 0.5)
+    )
+
+  # Combine
+  final <- (plot_loph | plot_desmo)
+
+  # Add annotation
+  final + plot_annotation(
+    title = ylab,
+    caption = "Error bars represent standard error",
+    theme = theme(
+      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+      plot.caption = element_text(size = 12, hjust = 0)
+    )
+  )
+}
+
+
+```
+
+
+function including all the data 
+
+```{r}
+make_sperm_plot2 <- function(df, variable_name) {
+
+  # Label dictionary
+  y_labels <- c(
+    "Total_motile_sperm" = "Total Motile Sperm (count)",
+    "Percent_Motile" = "Average Percent Motile (%)",
+    "Percent_Progressive" = "Average Percent Progressive (%)",
+    "Percent_Total_Motile" = "Average Percent Total Motile (%)",
+    "Avg_Motile_VCL" = "Average Motile VCL (µm/s)",
+    "Avg_Motile_VAP" = "Average Motile VAP (µm/s)",
+    "Avg_Motile_VSL" = "Average Motile VSL (µm/s)",
+    "Avg_Prog_Motile_VCL" = "Average Progressive VCL (µm/s)",
+    "Avg_Prog_Motile_VAP" = "Average Progressive VAP (µm/s)",
+    "Avg_Prog_Motile_VSL" = "Average Progressive VSL (µm/s)",
+    "Avg_Tot_Motile_VCL" = "Average Total VCL (µm/s)",
+    "Avg_Tot_Motile_VAP" = "Average Total VAP (µm/s)",
+    "Avg_Tot_Motile_VSL" = "Average Total VSL (µm/s)",
+    "percent_slow" = "Percent Slow (%)"
+  )
+  
+  ylab <- y_labels[variable_name]
+
+  # Helper to summarise by species
+  summarise_species <- function(species_name) {
+    df %>%
+      filter(Species == species_name) %>%
+      mutate(season_bin = factor(season_bin, levels = c("start", "mid", "end"))) %>%
+      group_by(season_bin) %>%
+      summarise(
+        mean_val = mean(.data[[variable_name]], na.rm = TRUE),
+        se_val = sd(.data[[variable_name]], na.rm = TRUE) / sqrt(n()),
+        count = n(),
+        .groups = "drop"
+      )
+  }
+
+  # Lophelia
+  df_loph <- summarise_species("Lophelia")
+
+  plot_loph <- ggplot(df_loph, aes(x = season_bin, y = mean_val, fill = season_bin)) +
+    geom_col(alpha = 0.8, width = 0.5) +
+    geom_errorbar(aes(ymin = mean_val - se_val, ymax = mean_val + se_val),
+                  width = 0.2) +
+    scale_fill_manual(values = c("start" = "#3B9AB2", "mid" = "#F1A340", "end" = "#5B8A3C")) +
+    labs(
+      title = expression(italic("D. pertusum")),
+      x = NULL,
+      y = ylab
+    ) +
+    theme_classic() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+      axis.text.y = element_text(size = 14),
+      axis.title.x = element_text(size = 16, face = "bold"),
+      axis.title.y = element_text(size = 16, face = "bold"),
+      legend.position = "none",
+      plot.title = element_text(size = 18, face = "bold", hjust = 0.5)
+    )
+
+  # Desmo
+  df_desmo <- summarise_species("Desmo")
+
+  plot_desmo <- ggplot(df_desmo, aes(x = season_bin, y = mean_val, fill = season_bin)) +
+    geom_col(alpha = 0.8, width = 0.5) +
+    geom_errorbar(aes(ymin = mean_val - se_val, ymax = mean_val + se_val),
+                  width = 0.2) +
+    scale_fill_manual(values = c("start" = "#3B9AB2", "mid" = "#F1A340", "end" = "#5B8A3C")) +
+    labs(
+      title = expression(italic("D. dianthus")),
+      x = NULL,
+      y = NULL
+    ) +
+    theme_classic() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+      axis.text.y = element_text(size = 14),
+      axis.title.x = element_text(size = 16, face = "bold"),
+      axis.title.y = element_text(size = 16, face = "bold"),
+      legend.position = "none",
+      plot.title = element_text(size = 18, face = "bold", hjust = 0.5)
+    )
+
+  # Combine
+  final <- (plot_loph | plot_desmo)
+
+  # Add annotation
+  final + plot_annotation(
+    title = ylab,
+    caption = "Error bars represent standard error",
+    theme = theme(
+      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+      plot.caption = element_text(size = 12, hjust = 0)
+    )
+  )
+}
+
+```
+
+call the function 
+
+```{r}
+
+make_sperm_plot(db3_max, "Percent_Motile")
+make_sperm_plot2(db3_max, "Percent_Motile")
+
+make_sperm_plot(db3_max, "Percent_Progressive")
+make_sperm_plot2(db3_max, "Percent_Progressive")
+
+make_sperm_plot(db3_max, "Percent_Total_Motile")
+make_sperm_plot2(db3_max, "Percent_Total_Motile")
+
+make_sperm_plot(db3_max, "Avg_Motile_VCL")
+make_sperm_plot2(db3_max, "Avg_Motile_VCL")
+
+make_sperm_plot(db3_max, "Avg_Motile_VAP")
+make_sperm_plot2(db3_max, "Avg_Motile_VAP")
+
+make_sperm_plot(db3_max, "Avg_Motile_VSL")
+make_sperm_plot2(db3_max, "Avg_Motile_VSL")
+
+make_sperm_plot(db3_max, "Avg_Prog_Motile_VCL")
+make_sperm_plot2(db3_max, "Avg_Prog_Motile_VCL")
+
+make_sperm_plot(db3_max, "Avg_Prog_Motile_VAP")
+make_sperm_plot2(db3_max, "Avg_Prog_Motile_VAP")
+
+make_sperm_plot(db3_max, "Avg_Prog_Motile_VSL")
+make_sperm_plot2(db3_max, "Avg_Prog_Motile_VSL")
+
+make_sperm_plot(db3_max, "Avg_Tot_Motile_VCL")
+make_sperm_plot2(db3_max, "Avg_Tot_Motile_VCL")
+
+make_sperm_plot(db3_max, "Avg_Tot_Motile_VAP")
+make_sperm_plot2(db3_max, "Avg_Tot_Motile_VAP")
+
+make_sperm_plot(db3_max, "Avg_Tot_Motile_VSL")
+make_sperm_plot2(db3_max, "Avg_Tot_Motile_VSL")
+
+make_sperm_plot(db3_max, "percent_slow")
+make_sperm_plot2(db3_max, "percent_slow")
+```
+Interetsing parameters to analyse
+
+Percent_Motile, Percent_Progresive, Percent_Total_Motile, Avg_Motile_VAP ,Avg_Prog_Motile_VAP ,Avg_Tot_Motile_VAP. 
+compare them with emmeans 
+
+A beta model is better for proportion data
+
+```{r}
+library(brms)
+library(emmeans)
+#  Prepare the data for Beta regression
+model_data_beta <- db3_max %>%
+  filter(Species == "Lophelia", time_after_min_round < 15) %>%
+  mutate(
+    # Convert Percent_Motile (0-100) to Proportion_Motile (0-1)
+    Proportion_Motile = Percent_Motile / 100,
+    # Get the number of observations in this filtered dataset (N)
+    N_obs = n()
+  ) %>%
+  # --- IMPORTANT STEP for Beta Regression ---
+  # Beta distribution is defined on (0, 1), EXCLUDING exact 0 and 1.
+  # Check if your Proportion_Motile contains exact 0s or 1s:
+  # summary(model_data_beta$Proportion_Motile) # Look at Min. and Max.
+  # If Min is 0 or Max is 1, you MUST apply a transformation.
+  # A common transformation (Smithson & Verkuilen 2006):
+  mutate(
+    Proportion_Motile_Transformed = (Proportion_Motile * (N_obs - 1) + 0.5) / N_obs
+    # If you have NO exact 0s or 1s, you could skip this and use Proportion_Motile directly
+    # However, using the transformed version is often safer.
+  )
+
+# Verify the range of the transformed variable (should be strictly between 0 and 1)
+summary(model_data_beta$Proportion_Motile_Transformed)
+
+# 3. Define the distributional formula for Beta regression
+# We model the mean (mu, via logit link) and precision (phi, often via log link)
+bf_beta_het <- bf(
+  Proportion_Motile_Transformed ~ season_bin, # Mean depends on season
+  phi ~ season_bin                       # Precision also depends on season
+)
+
+```
+
+Use get_prior() first — this shows what parameters brms expects and the exact dpar names:
+```{r}
+get_prior(bf_beta_het, data = model_data_beta, family = Beta(link = "logit"))
+
+```
+Set priors based on the observed data (recommended)
+```{r}
+obs_mean <- mean(model_data_beta$Proportion_Motile, na.rm = TRUE)
+logit_mean <- qlogis(obs_mean)   # qlogis handles 0/1 but you transformed so should be safe
+logit_mean
+
+```
+
+Code based on the logit_mean
+```{r}
+# compute observed logit mean (you already did this)
+obs_mean <- mean(model_data_beta$Proportion_Motile, na.rm = TRUE)
+logit_mean <- qlogis(obs_mean)   # = -1.857484
+
+# Recommended priors (regularising)
+priors_recommended <- c(
+  # mean (mu) part on logit scale
+  prior(student_t(3, -1.8575, 1), class = "Intercept"),
+  prior(normal(0, 0.75), class = "b"),
+
+  # phi part: choose either a Gamma prior on phi-intercept...
+  prior(gamma(2, 0.01), class = "Intercept", dpar = "phi"),
+  prior(normal(0, 0.5), class = "b", dpar = "phi")
+
+  # --- ALTERNATIVE: if you prefer priors on log(phi) instead:
+  # prior(student_t(3, 3, 1.5), class = "Intercept", dpar = "phi"),
+  # prior(normal(0, 0.5), class = "b", dpar = "phi")
+)
+
+# See what brms expects
+get_prior(bf_beta_het, data = model_data_beta, family = Beta(link = "logit"))
+
+# Prior predictive check (sample only from prior)
+m_prior_only <- brm(
+  formula = bf_beta_het,
+  data = model_data_beta,
+  family = Beta(link = "logit"),
+  prior = priors_recommended,
+  sample_prior = "only",
+  chains = 2, iter = 2000, warmup = 1000, seed = 42
+)
+
+pp_check(m_prior_only, type = "dens_overlay") + ggtitle("Prior predictive (only) — check plausibility")
+
+# If that looks sensible, fit the full model
+m_beta <- brm(
+  formula = bf_beta_het,
+  data = model_data_beta,
+  family = Beta(link = "logit"),
+  prior = priors_recommended,
+  chains = 4, iter = 4000, warmup = 2000,
+  control = list(adapt_delta = 0.98, max_treedepth = 12),
+  seed = 5678
+)
+
+# Diagnostics
+summary(m_beta)
+pp_check(m_beta, ndraws = 100, type = "dens_overlay")
+pp_check(m_beta, type = "stat_grouped", stat = "mean", group = "season_bin")
+pp_check(m_beta, type = "stat_grouped", stat = "sd", group = "season_bin")
+
+```
+emmeans
+
+```{r}
+# Estimated marginal means for Lophelia
+emm_beta_lophelia <- emmeans(m_beta, ~ season_bin, type = "response")
+
+# Convert to tibble/data frame
+emm_beta_lophelia_df <- as.data.frame(emm_beta_lophelia)
+
+# Lophelia: convert and scale
+emm_beta_lophelia_df <- as.data.frame(summary(emm_beta_lophelia))
+
+# Look at what columns are actually there
+colnames(emm_beta_lophelia_df)
+# Convert to percentage scale
+emm_beta_lophelia_df$response   <- emm_beta_lophelia_df$response * 100
+emm_beta_lophelia_df$lower.HPD <- emm_beta_lophelia_df$lower.HPD * 100
+emm_beta_lophelia_df$upper.HPD <- emm_beta_lophelia_df$upper.HPD * 100
+emm_beta_lophelia_df$Species   <- "Lophelia"
+
+
+```
+
+Desmo
+```{r}
+# --- 1. Prepare data for Desmo ---
+model_data_beta_desmo <- db3_max %>%
+  filter(Species == "Desmo", time_after_min_round < 15) %>%
+  mutate(
+    Proportion_Motile = Percent_Motile / 100,
+    N_obs = n(),
+    Proportion_Motile_Transformed = (Proportion_Motile * (N_obs - 1) + 0.5) / N_obs
+  )
+
+summary(model_data_beta_desmo$Proportion_Motile_Transformed) # quick check
+
+# --- 2. Define the Beta regression model for Desmo ---
+bf_beta_het_desmo <- bf(
+  Proportion_Motile_Transformed ~ season_bin,
+  phi ~ season_bin
+)
+
+get_prior(bf_beta_het_desmo, data = model_data_beta_desmo, family = Beta(link = "logit"))
+
+obs_mean <- mean(model_data_beta_desmo$Proportion_Motile, na.rm = TRUE)
+logit_mean <- qlogis(obs_mean)   # qlogis handles 0/1 but you transformed so should be safe
+logit_mean
+
+
+
+```
+Use the priors
+
+```{r}
+# --- 3. Priors (reuse same as Lophelia, just adjust intercept if you want) ---
+priors_beta_het_desmo <- c(
+  prior(student_t(3, -1.679086, 1), class = "Intercept"), # or recompute logit mean for Desmo
+  prior(normal(0, 0.75), class = "b"),
+  prior(gamma(2, 0.01), class = "Intercept", dpar = "phi"),
+  prior(normal(0, 0.5), class = "b", dpar = "phi")
+)
+
+# --- 4. Fit the model ---
+brm_ml_Desmo_beta <- brm(
+  formula = bf_beta_het_desmo,
+  data = model_data_beta_desmo,
+  family = Beta(link = "logit"),
+  prior = priors_beta_het_desmo,
+  chains = 4, iter = 4000, warmup = 2000,
+  cores = 4,
+  control = list(adapt_delta = 0.98, max_treedepth = 12),
+  seed = 1234
+)
+```
+
+
+check desmo 
+```{r}
+# Diagnostics
+summary(brm_ml_Desmo_beta)
+pp_check(brm_ml_Desmo_beta, ndraws = 100, type = "dens_overlay")
+pp_check(brm_ml_Desmo_beta, type = "stat_grouped", stat = "mean", group = "season_bin")
+pp_check(brm_ml_Desmo_beta, type = "stat_grouped", stat = "sd", group = "season_bin")
+```
+
+
+
+Marginal means for desmo
+
+```{r}
+# --- 5. Marginal means for Desmo ---
+emm_beta_desmo <- emmeans(brm_ml_Desmo_beta, specs = ~ season_bin, type = "response")
+emm_beta_desmo_df <- as.data.frame(summary(emm_beta_desmo))
+
+# Convert to percentage scale (0–100)
+emm_beta_desmo_df$response <- emm_beta_desmo_df$response * 100
+emm_beta_desmo_df$lower.HPD <- emm_beta_desmo_df$lower.HPD * 100
+emm_beta_desmo_df$upper.HPD <- emm_beta_desmo_df$upper.HPD * 100
+
+emm_beta_desmo_df$Species <- "Desmo"
+```
+
+
+
+
+
+combine Lophelia for plotting
+
+```{r}
+emm_all <- bind_rows(emm_beta_lophelia_df, emm_beta_desmo_df)
+
+
+library(ggplot2)
+ggplot(emm_all, aes(x = season_bin, y = response, colour = Species, group = Species)) +
+  geom_point(position = position_dodge(width = 0.3), size = 3) +
+  geom_errorbar(aes(ymin = lower.HPD, ymax = upper.HPD),
+                position = position_dodge(width = 0.3), width = 0.2) +
+  labs(y = "Estimated Motility (%)", x = "Season", colour = "Species") +
+  theme_minimal(base_size = 14)
+
+```
+
+Plot the half eyes
+
+```{r}
+library(tidybayes)
+
+# Desmo
+emm_desmo_link <- emmeans(brm_ml_Desmo_beta, ~ season_bin, type = "link")
+draws_desmo_pct <- emm_desmo_link %>%
+  gather_emmeans_draws() %>%
+  mutate(Species = "Desmo",
+         .value = plogis(.value) * 100)
+
+# Lophelia
+emm_lo_link <- emmeans(m_beta, ~ season_bin, type = "link")
+draws_lo_pct <- emm_lo_link %>%
+  gather_emmeans_draws() %>%
+  mutate(Species = "Lophelia",
+         .value = plogis(.value) * 100)
+
+```
+
+combine
+```{r}
+combined_draws <- bind_rows(draws_desmo_pct, draws_lo_pct)
+
+combined_summary <- combined_draws %>%
+  group_by(Species, season_bin) %>%
+  summarise(median_hdi(.value, .width = 0.95), .groups = "drop")
+
+```
+
+plot
+
+```{r}
+
+
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(tidybayes)
+library(ggtext)  # for geom_richtext
+
+# # --- Summarise posterior draws ---
+# combined_summary <- combined_draws %>%
+#   group_by(Species, season_bin) %>%
+#   summarise(
+#     median = median(.value),
+#     lower  = quantile(.value, 0.025),
+#     upper  = quantile(.value, 0.975),
+#     .groups = "drop"
+#   ) %>%
+#   mutate(
+#     Species_strip = factor(
+#       Species,
+#       levels = species_levels,
+#       labels = species_strip
+#     )
+#   )
+# 
+# # --- Plot with half-eyes + numeric labels ---
+# ggplot(combined_draws, aes(x = .value, y = season_bin, fill = Species)) +
+#   ggdist::stat_halfeye(
+#     .width = c(0.66, 0.95),
+#     point_interval = "median_hdi",
+#     aes(slab_alpha = after_stat(level)),
+#     trim = TRUE
+#   ) +
+#   scale_fill_manual(
+#     values = c(Desmo = "#9467bd", Lophelia = "#f3c300"),
+#     breaks = species_levels,
+#     labels = species_legend
+#   ) +
+#   scale_slab_alpha_discrete(range = c(0.4, 0.8), guide = "none") +
+#   facet_wrap(
+#     ~ Species_strip,
+#     ncol = 1,
+#     labeller = label_parsed
+#   ) +
+#   # Add labels (bounds + median)
+#   geom_text(
+#     data = combined_summary,
+#     aes(
+#       x = median,
+#       y = season_bin,
+#       label = paste0(sprintf("%.1f", lower), "   ",
+#                      sprintf("%.1f", median), "   ",
+#                      sprintf("%.1f", upper))
+#     ),
+#     inherit.aes = FALSE,
+#     vjust = 2,
+#     size = 3.5
+#   ) +
+#   labs(
+#     title = "Posterior Distribution of Mean Percentage Motile",
+#     x = "Estimated Mean Percent Motile (%)",
+#     y = NULL,
+#     fill = NULL
+#   ) +
+#   
+#   theme_classic(base_size = 14)
+
+
+# Prepare combined_summary for label positioning
+combined_summary <- combined_draws %>%
+  group_by(Species, season_bin) %>%
+  summarise(
+    median = median(.value),
+    lower  = quantile(.value, 0.025),
+    upper  = quantile(.value, 0.975),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    Species_strip = factor(
+      Species,
+      levels = species_levels,
+      labels = species_strip
+    )
+  )
+
+# Create the plot
+ggplot(combined_draws, aes(x = .value, y = season_bin, fill = Species)) +
+  ggdist::stat_halfeye(
+    .width = c(0.66, 0.95),
+    point_interval = "median_hdi",
+    aes(slab_alpha = after_stat(level)),
+    trim = TRUE
+  ) +
+  scale_fill_manual(
+    values = c(Desmo = "#9467bd", Lophelia = "#f3c300"),
+    breaks = species_levels,
+    labels = species_legend
+  ) +
+  scale_slab_alpha_discrete(range = c(0.4, 0.8), guide = "none") +
+  facet_wrap(
+    ~ Species_strip,
+    ncol = 1,
+    labeller = label_parsed
+  ) +
+
+  # --- Add lower label (left-aligned)
+  geom_text(
+    data = combined_summary,
+    aes(x = lower, y = season_bin, label = sprintf("%.1f", lower)),
+    hjust = 1.2,
+    inherit.aes = FALSE,
+    size = 3.5,
+    color = "grey30"
+  ) +
+
+  # --- Add upper label (right-aligned)
+  geom_text(
+    data = combined_summary,
+    aes(x = upper, y = season_bin, label = sprintf("%.1f", upper)),
+    hjust = -0.2,
+    inherit.aes = FALSE,
+    size = 3.5,
+    color = "grey30"
+  ) +
+
+  # --- Add median label (center-aligned, bold)
+  ggtext::geom_richtext(
+    data = combined_summary,
+    aes(
+      x = median,
+      y = season_bin,
+      label = paste0("<b>", sprintf("%.1f", median), "</b>")
+    ),
+    fill = NA,
+    label.color = NA,
+    inherit.aes = FALSE,
+    size = 3.5,
+    vjust = 1.1,
+    color = "black"
+  ) +
+
+  labs(
+    title = "Posterior Distribution of Mean Percentage Motile",
+    x = "Estimated Mean Percent Motile (%)",
+    y = NULL,
+    fill = NULL
+  ) +
+  theme_classic(base_size = 14)
+
+
+```
+
+Percent progressive
+
+```{r}
+library(dplyr)
+
+# Lophelia
+model_data_beta_prog_lophelia <- db3_max %>%
+  filter(Species == "Lophelia", time_after_min_round < 15) %>%
+  mutate(
+    Proportion_Progressive = Percent_Progressive / 100,
+    N_obs = n(),
+    Proportion_Progressive_Transformed = (Proportion_Progressive * (N_obs - 1) + 0.5) / N_obs
+  )
+summary(model_data_beta_prog_lophelia$Proportion_Progressive_Transformed)
+
+```
+model formula
+```{r}
+library(brms)
+
+bf_beta_prog_loph <- bf(
+  Proportion_Progressive_Transformed ~ season_bin,
+  phi ~ season_bin
+)
+
+```
+
+priors
+
+```{r}
+obs_mean_prog_loph <- mean(model_data_beta_prog_lophelia$Proportion_Progressive, na.rm = TRUE)
+logit_mean_prog_loph <- qlogis(obs_mean_prog_loph)
+
+priors_prog_loph <- c(
+  prior(student_t(3, -1.404282, 1), class = "Intercept"),
+  prior(normal(0, 0.75), class = "b"),
+  prior(gamma(2, 0.1), class = "Intercept", dpar = "phi"),
+  prior(normal(0, 0.5), class = "b", dpar = "phi")
+)
+
+```
+
+fit model
+```{r}
+m_beta_prog_loph <- brm(
+  formula = bf_beta_prog_loph,
+  data = model_data_beta_prog_lophelia,
+  family = Beta(link = "logit"),
+  prior = priors_prog_loph,
+  chains = 4, iter = 4000, warmup = 2000,
+  control = list(adapt_delta = 0.98, max_treedepth = 12),
+  seed = 42
+)
+
+```
+
+Estimated marginal means
+
+```{r}
+library(emmeans)
+
+emm_beta_prog_loph <- emmeans(m_beta_prog_loph, ~ season_bin, type = "response")
+emm_beta_prog_loph_df <- as.data.frame(summary(emm_beta_prog_loph))
+
+# Convert to %
+emm_beta_prog_loph_df$response <- emm_beta_prog_loph_df$response * 100
+emm_beta_prog_loph_df$lower.HPD <- emm_beta_prog_loph_df$lower.HPD * 100
+emm_beta_prog_loph_df$upper.HPD <- emm_beta_prog_loph_df$upper.HPD * 100
+emm_beta_prog_loph_df$Species <- "Lophelia"
+
+```
+
+Now Desmo
+
+```{r}
+# Desmo
+model_data_beta_prog_desmo <- db3_max %>%
+  filter(Species == "Desmo", time_after_min_round < 15) %>%
+  mutate(
+    Proportion_Progressive = Percent_Progressive / 100,
+    N_obs = n(),
+    Proportion_Progressive_Transformed = (Proportion_Progressive * (N_obs - 1) + 0.5) / N_obs
+  )
+
+obs_mean_prog_desmo <- mean(model_data_beta_prog_desmo$Proportion_Progressive, na.rm = TRUE)
+logit_mean_prog_desmo <- qlogis(obs_mean_prog_desmo)
+
+priors_prog_desmo <- c(
+  prior(student_t(3, -1.755874, 1), class = "Intercept"),
+  prior(normal(0, 0.75), class = "b"),
+  prior(gamma(2, 0.1), class = "Intercept", dpar = "phi"),
+  prior(normal(0, 0.5), class = "b", dpar = "phi")
+)
+
+# Fit model
+m_beta_prog_desmo <- brm(
+  formula = bf(
+    Proportion_Progressive_Transformed ~ season_bin,
+    phi ~ season_bin
+  ),
+  data = model_data_beta_prog_desmo,
+  family = Beta(link = "logit"),
+  prior = priors_prog_desmo,
+  chains = 4, iter = 4000, warmup = 2000,
+  control = list(adapt_delta = 0.98, max_treedepth = 12),
+  seed = 123
+)
+
+
+```
+
+Check model
+
+```{r}
+pp_check(m_beta_prog_desmo, type = "stat_grouped", group = "season_bin", stat="mean",ndraws = 100)
+print(pp_check(m_beta_prog_desmo, type = "dens_overlay", ndraws = 100))
+plot(m_beta_prog_desmo)
+```
+
+EMMs
+
+```{r}
+# EMMs
+emm_beta_prog_desmo <- emmeans(m_beta_prog_desmo, ~ season_bin, type = "response")
+emm_beta_prog_desmo_df <- as.data.frame(summary(emm_beta_prog_desmo))
+
+# Convert to %
+emm_beta_prog_desmo_df$response <- emm_beta_prog_desmo_df$response * 100
+emm_beta_prog_desmo_df$lower.HPD <- emm_beta_prog_desmo_df$lower.HPD * 100
+emm_beta_prog_desmo_df$upper.HPD <- emm_beta_prog_desmo_df$upper.HPD * 100
+emm_beta_prog_desmo_df$Species <- "Desmo"
+```
+
+
+combine
+```{r}
+emm_all_prog <- bind_rows(emm_beta_prog_loph_df, emm_beta_prog_desmo_df)
+
+```
+
+plot posterior draws
+
+```{r}
+library(tidybayes)
+
+# Lophelia
+draws_loph_prog <- emmeans(m_beta_prog_loph, ~ season_bin, type = "link") %>%
+  gather_emmeans_draws() %>%
+  mutate(Species = "Lophelia", .value = plogis(.value) * 100)
+
+# Desmo
+draws_desmo_prog <- emmeans(m_beta_prog_desmo, ~ season_bin, type = "link") %>%
+  gather_emmeans_draws() %>%
+  mutate(Species = "Desmo", .value = plogis(.value) * 100)
+
+combined_draws_prog <- bind_rows(draws_loph_prog, draws_desmo_prog)
+
+# Define species display
+species_levels <- c("Desmo", "Lophelia")
+species_strip <- c("italic('D. dianthus')", "italic('D. pertusum')")
+species_legend <- c("D. dianthus", "D. pertusum")
+
+```
+
+
+summary plus plot
+
+```{r}
+combined_summary_prog <- combined_draws_prog %>%
+  group_by(Species, season_bin) %>%
+  summarise(
+    median = median(.value),
+    lower  = quantile(.value, 0.025),
+    upper  = quantile(.value, 0.975),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    Species_strip = factor(Species, levels = species_levels, labels = species_strip)
+  )
+
+library(dplyr)
+library(ggplot2)
+library(tidybayes)
+library(ggtext)
+
+# --- Define species display options ---
+species_levels <- c("Desmo", "Lophelia")
+species_legend <- c("D. dianthus", "D. pertusum")
+species_colors <- c("Desmo" = "#9467bd", "Lophelia" = "#f3c300")
+
+# --- Prepare summary stats for labels ---
+combined_summary_prog <- combined_draws_prog %>%
+  group_by(Species, season_bin) %>%
+  summarise(
+    median = median(.value),
+    lower  = quantile(.value, 0.025),
+    upper  = quantile(.value, 0.975),
+    .groups = "drop"
+  )
+# Add parsed expression labels
+combined_draws_prog <- combined_draws_prog %>%
+  mutate(Species_label = recode(Species,
+    "Desmo" = "italic('D. dianthus')",
+    "Lophelia" = "italic('D. pertusum')"
+  ))
+
+combined_summary_prog <- combined_summary_prog %>%
+  mutate(Species_label = recode(Species,
+    "Desmo" = "italic('D. dianthus')",
+    "Lophelia" = "italic('D. pertusum')"
+  ))
+# --- The Plot ---
+ggplot(data = combined_draws_prog, mapping = aes(x = .value, y = season_bin)) +
+
+  # Posterior densities (half-eyes)
+  stat_halfeye(
+    mapping = aes(fill = Species, slab_alpha = after_stat(level)),
+    .width = c(0.66, 0.95),
+    point_interval = "median_hdi",
+    trim = TRUE
+  ) +
+
+  # Colour scale
+  scale_fill_manual(
+    values = species_colors,
+    breaks = species_levels,
+    labels = species_legend
+  ) +
+
+  scale_slab_alpha_discrete(range = c(0.4, 0.8), guide = "none") +
+
+  # Facet by species
+  facet_wrap(
+  ~ Species_label,
+  ncol = 1,
+  labeller = label_parsed
+)+
+
+  # Lower bound text
+  geom_text(
+    data = combined_summary_prog,
+    mapping = aes(x = lower, y = season_bin, label = sprintf("%.1f", lower)),
+    inherit.aes = FALSE,
+    hjust = 1.2,
+    size = 3.5,
+    color = "grey30"
+  ) +
+
+  # Upper bound text
+  geom_text(
+    data = combined_summary_prog,
+    mapping = aes(x = upper, y = season_bin, label = sprintf("%.1f", upper)),
+    inherit.aes = FALSE,
+    hjust = -0.2,
+    size = 3.5,
+    color = "grey30"
+  ) +
+
+  # Median value (bold using ggtext)
+  geom_richtext(
+    data = combined_summary_prog,
+    mapping = aes(
+      x = median, y = season_bin,
+      label = paste0("<b>", sprintf("%.1f", median), "</b>")
+    ),
+    fill = NA,
+    label.color = NA,
+    inherit.aes = FALSE,
+    size = 3.5,
+    vjust = 1.1,
+    color = "black"
+  ) +
+
+  labs(
+    title = "Posterior Distribution of Mean Percent Progressive Motile",
+    x = "Estimated Mean Percent Progressive Motile (%)",
+    y = NULL,
+    fill = NULL
+  ) +
+
+  theme_classic(base_size = 14) +
+  theme(
+    strip.background = element_blank(),
+    strip.text = element_text(size = 14, face = "italic"),
+    panel.spacing = unit(1.2, "lines"),
+    legend.position = "right"
+  )
+
+
+
+```
+
+Now VAPs
+
+```{r}
+library(dplyr)
+
+data_vap <- db3_max %>%
+  filter(Species %in% c("Desmo", "Lophelia"),
+         !is.na(Avg_Prog_Motile_VAP),
+         Avg_Prog_Motile_VAP > 49,     # keep this domain-specific filter
+         time_after_min_round < 15) %>%
+  mutate(
+    season_bin = factor(season_bin, levels = c("start", "mid", "end")),
+    Species = factor(Species)
+  )
+
+```
+
+Fit models 
+Desmo
+
+```{r}
+library(brms)
+
+vap_desmo <- data_vap %>% filter(Species == "Desmo")
+
+get_prior(Avg_Prog_Motile_VAP ~ season_bin, 
+          data = data_vap %>% filter(Species == "Desmo"), 
+          family = Gamma(link = "log"))
+
+
+
+model_vap_desmo <- brm(
+  Avg_Prog_Motile_VAP ~ season_bin,
+  data = data_vap %>% filter(Species == "Desmo"),
+  family = Gamma(link = "log"),
+  prior = c(
+  prior(normal(log(110), 0.5), class = "Intercept"),
+  prior(normal(0, 0.3), class = "b")
+  ),
+  chains = 4, iter = 4000, warmup = 2000,
+  control = list(adapt_delta = 0.95, max_treedepth = 12),
+  seed = 123
+)
+```
+
+check
+
+```{r}
+pp_check(model_vap_desmo, type = "stat_grouped", group = "season_bin", stat="mean",ndraws = 100)
+print(pp_check(model_vap_desmo, type = "dens_overlay", ndraws = 100))
+pp_check(model_vap_desmo)
+plot(model_vap_desmo)
+
+```
+
