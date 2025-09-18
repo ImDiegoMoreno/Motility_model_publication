@@ -72,7 +72,7 @@ str(db)
 test to see if it worked
 
 ```{r}
-db$hour_video - db$hour_spawning
+#db$hour_video - db$hour_spawning
 ```
 
 Calculate the rate of slow sperm
@@ -272,15 +272,6 @@ print(event_plot)
 ```
 
 
-```{r}
-db3_max %>%
-  filter(date == "2025-03-02",
-         Species == "Lophelia",
-         tube == 1,
-         male == 79)
-```
-
-
 ploting curves
 
 ```{r}
@@ -454,10 +445,6 @@ ggplot(db3_summary, aes(x = time_bin, y = mean_motile, group = Species, colour =
   scale_colour_manual(values = c("Lophelia" = "#f3c300", "Desmo" = "#9467bd")) +
   theme_minimal()
 
-ggplot(db3_max_binned, aes(x = Species, y = time_bin, fill = Percent_Motile)) +
-  geom_tile() +
-  scale_fill_viridis_c() +
-  theme_minimal()
 
 
 ```
@@ -1278,52 +1265,39 @@ logit_mean
 
 ```
 
+
 Code based on the logit_mean
 ```{r}
 # compute observed logit mean (you already did this)
 obs_mean <- mean(model_data_beta$Proportion_Motile, na.rm = TRUE)
 logit_mean <- qlogis(obs_mean)   # = -1.857484
 
-# Recommended priors (regularising)
+# --- Priors (regularising) ---
 priors_recommended <- c(
-  # mean (mu) part on logit scale
+  # Mean (mu) part on logit scale
   prior(student_t(3, -1.8575, 1), class = "Intercept"),
   prior(normal(0, 0.75), class = "b"),
 
-  # phi part: choose either a Gamma prior on phi-intercept...
-  prior(gamma(2, 0.01), class = "Intercept", dpar = "phi"),
-  prior(normal(0, 0.5), class = "b", dpar = "phi")
-
-  # --- ALTERNATIVE: if you prefer priors on log(phi) instead:
-  # prior(student_t(3, 3, 1.5), class = "Intercept", dpar = "phi"),
-  # prior(normal(0, 0.5), class = "b", dpar = "phi")
+  # Phi (precision) part on log scale
+  prior(normal(log(10), 1), class = "Intercept", dpar = "phi"),  # median φ ≈ 10, 95% ≈ [1.4, 71]
+  prior(normal(0, 0.3), class = "b", dpar = "phi")
 )
 
-# See what brms expects
-get_prior(bf_beta_het, data = model_data_beta, family = Beta(link = "logit"))
+# --- Check priors ---
+get_prior(bf_beta_het, data = model_data_beta,
+          family = Beta(link = "logit", link_phi = "log"))
 
-# Prior predictive check (sample only from prior)
-m_prior_only <- brm(
-  formula = bf_beta_het,
-  data = model_data_beta,
-  family = Beta(link = "logit"),
-  prior = priors_recommended,
-  sample_prior = "only",
-  chains = 2, iter = 2000, warmup = 1000, seed = 42
-)
-
-pp_check(m_prior_only, type = "dens_overlay") + ggtitle("Prior predictive (only) — check plausibility")
-
-# If that looks sensible, fit the full model
+# --- Fit model ---
 m_beta <- brm(
   formula = bf_beta_het,
-  data = model_data_beta,
-  family = Beta(link = "logit"),
-  prior = priors_recommended,
-  chains = 4, iter = 4000, warmup = 2000,
+  data    = model_data_beta,
+  family  = Beta(link = "logit", link_phi = "log"),  # <-- important change here
+  prior   = priors_recommended,
+  chains  = 4, iter = 4000, warmup = 2000,
   control = list(adapt_delta = 0.98, max_treedepth = 12),
-  seed = 5678
+  seed    = 5678
 )
+
 
 # Diagnostics
 summary(m_beta)
@@ -1332,7 +1306,11 @@ pp_check(m_beta, type = "stat_grouped", stat = "mean", group = "season_bin")
 pp_check(m_beta, type = "stat_grouped", stat = "sd", group = "season_bin")
 
 ```
+
+
+
 emmeans
+
 
 ```{r}
 # Estimated marginal means for Lophelia
@@ -1386,19 +1364,29 @@ logit_mean
 Use the priors
 
 ```{r}
+
+
 # --- 3. Priors (reuse same as Lophelia, just adjust intercept if you want) ---
 priors_beta_het_desmo <- c(
   prior(student_t(3, -1.679086, 1), class = "Intercept"), # or recompute logit mean for Desmo
   prior(normal(0, 0.75), class = "b"),
-  prior(gamma(2, 0.01), class = "Intercept", dpar = "phi"),
-  prior(normal(0, 0.5), class = "b", dpar = "phi")
+  # Phi (precision) part on log scale
+  prior(normal(log(10), 1), class = "Intercept", dpar = "phi"),  # median φ ≈ 10, 95% ≈ [1.4, 71]
+  prior(normal(0, 0.3), class = "b", dpar = "phi")
+)
+
+# Just ask: what priors does this model expect?
+get_prior(
+  formula = bf_beta_het_desmo, 
+  data    = model_data_beta_desmo,
+  family  = Beta(link = "logit", link_phi = "log")
 )
 
 # --- 4. Fit the model ---
 brm_ml_Desmo_beta <- brm(
   formula = bf_beta_het_desmo,
   data = model_data_beta_desmo,
-  family = Beta(link = "logit"),
+  family = Beta(link = "logit", link_phi = "log"),
   prior = priors_beta_het_desmo,
   chains = 4, iter = 4000, warmup = 2000,
   cores = 4,
@@ -1458,105 +1446,37 @@ Plot the half eyes
 
 ```{r}
 library(tidybayes)
-
-# Desmo
-emm_desmo_link <- emmeans(brm_ml_Desmo_beta, ~ season_bin, type = "link")
-draws_desmo_pct <- emm_desmo_link %>%
-  gather_emmeans_draws() %>%
-  mutate(Species = "Desmo",
-         .value = plogis(.value) * 100)
-
-# Lophelia
-emm_lo_link <- emmeans(m_beta, ~ season_bin, type = "link")
-draws_lo_pct <- emm_lo_link %>%
-  gather_emmeans_draws() %>%
-  mutate(Species = "Lophelia",
-         .value = plogis(.value) * 100)
-
-```
-
-combine
-```{r}
-combined_draws <- bind_rows(draws_desmo_pct, draws_lo_pct)
-
-combined_summary <- combined_draws %>%
-  group_by(Species, season_bin) %>%
-  summarise(median_hdi(.value, .width = 0.95), .groups = "drop")
-
-```
-
-plot
-
-```{r}
-
-
-library(tidyr)
 library(dplyr)
+library(tidyr)
 library(ggplot2)
-library(tidybayes)
-library(ggtext)  # for geom_richtext
+library(ggtext)
 
-# # --- Summarise posterior draws ---
-# combined_summary <- combined_draws %>%
-#   group_by(Species, season_bin) %>%
-#   summarise(
-#     median = median(.value),
-#     lower  = quantile(.value, 0.025),
-#     upper  = quantile(.value, 0.975),
-#     .groups = "drop"
-#   ) %>%
-#   mutate(
-#     Species_strip = factor(
-#       Species,
-#       levels = species_levels,
-#       labels = species_strip
-#     )
-#   )
-# 
-# # --- Plot with half-eyes + numeric labels ---
-# ggplot(combined_draws, aes(x = .value, y = season_bin, fill = Species)) +
-#   ggdist::stat_halfeye(
-#     .width = c(0.66, 0.95),
-#     point_interval = "median_hdi",
-#     aes(slab_alpha = after_stat(level)),
-#     trim = TRUE
-#   ) +
-#   scale_fill_manual(
-#     values = c(Desmo = "#9467bd", Lophelia = "#f3c300"),
-#     breaks = species_levels,
-#     labels = species_legend
-#   ) +
-#   scale_slab_alpha_discrete(range = c(0.4, 0.8), guide = "none") +
-#   facet_wrap(
-#     ~ Species_strip,
-#     ncol = 1,
-#     labeller = label_parsed
-#   ) +
-#   # Add labels (bounds + median)
-#   geom_text(
-#     data = combined_summary,
-#     aes(
-#       x = median,
-#       y = season_bin,
-#       label = paste0(sprintf("%.1f", lower), "   ",
-#                      sprintf("%.1f", median), "   ",
-#                      sprintf("%.1f", upper))
-#     ),
-#     inherit.aes = FALSE,
-#     vjust = 2,
-#     size = 3.5
-#   ) +
-#   labs(
-#     title = "Posterior Distribution of Mean Percentage Motile",
-#     x = "Estimated Mean Percent Motile (%)",
-#     y = NULL,
-#     fill = NULL
-#   ) +
-#   
-#   theme_classic(base_size = 14)
+# --- Helper function: extract posterior draws of mean motility by season ---
+extract_mu_draws <- function(fit, species_name) {
+  draws <- fit %>%
+    spread_draws(b_Intercept, b_season_binmid, b_season_binstart) %>%
+    mutate(
+      end   = plogis(b_Intercept),                          # baseline (reference season)
+      mid   = plogis(b_Intercept + b_season_binmid),
+      start = plogis(b_Intercept + b_season_binstart)
+    ) %>%
+    select(.draw, end, mid, start) %>%
+    pivot_longer(-.draw, names_to = "season_bin", values_to = ".value") %>%
+    mutate(
+      Species = species_name,
+      .value = .value * 100  # convert to percentage
+    )
+  return(draws)
+}
 
+# --- Extract for both species ---
+draws_desmo    <- extract_mu_draws(brm_ml_Desmo_beta, "Desmo")
+draws_lophelia <- extract_mu_draws(m_beta, "Lophelia")
 
-# Prepare combined_summary for label positioning
+# --- Combine ---
+combined_draws <- bind_rows(draws_desmo, draws_lophelia)
+
+# --- Summaries for labels ---
 combined_summary <- combined_draws %>%
   group_by(Species, season_bin) %>%
   summarise(
@@ -1564,81 +1484,64 @@ combined_summary <- combined_draws %>%
     lower  = quantile(.value, 0.025),
     upper  = quantile(.value, 0.975),
     .groups = "drop"
-  ) %>%
-  mutate(
-    Species_strip = factor(
-      Species,
-      levels = species_levels,
-      labels = species_strip
-    )
   )
 
-# Create the plot
-ggplot(combined_draws, aes(x = .value, y = season_bin, fill = Species)) +
-  ggdist::stat_halfeye(
+# --- Species labels and colours ---
+species_levels <- c("Desmo", "Lophelia")
+species_labels <- c("Desmo" = "italic('D. dianthus')",
+                    "Lophelia" = "italic('D. pertusum')")
+species_colors <- c("Desmo" = "#9467bd", "Lophelia" = "#f3c300")
+
+# --- Plot ---
+ggplot(combined_draws, aes(x = .value, y = season_bin)) +
+  stat_halfeye(
+    aes(fill = Species, slab_alpha = after_stat(level)),
     .width = c(0.66, 0.95),
     point_interval = "median_hdi",
-    aes(slab_alpha = after_stat(level)),
     trim = TRUE
   ) +
-  scale_fill_manual(
-    values = c(Desmo = "#9467bd", Lophelia = "#f3c300"),
-    breaks = species_levels,
-    labels = species_legend
-  ) +
+  scale_fill_manual(values = species_colors, breaks = species_levels,
+                    labels = c("D. dianthus", "D. pertusum")) +
   scale_slab_alpha_discrete(range = c(0.4, 0.8), guide = "none") +
-  facet_wrap(
-    ~ Species_strip,
-    ncol = 1,
-    labeller = label_parsed
-  ) +
+  facet_wrap(~ Species, ncol = 1,
+             labeller = labeller(Species = as_labeller(species_labels, default = label_parsed))) +
 
-  # --- Add lower label (left-aligned)
+  # Lower bound text
   geom_text(
     data = combined_summary,
     aes(x = lower, y = season_bin, label = sprintf("%.1f", lower)),
-    hjust = 1.2,
-    inherit.aes = FALSE,
-    size = 3.5,
-    color = "grey30"
+    inherit.aes = FALSE, hjust = 1.2, size = 3.5, color = "grey30"
   ) +
-
-  # --- Add upper label (right-aligned)
+  # Upper bound text
   geom_text(
     data = combined_summary,
     aes(x = upper, y = season_bin, label = sprintf("%.1f", upper)),
-    hjust = -0.2,
-    inherit.aes = FALSE,
-    size = 3.5,
-    color = "grey30"
+    inherit.aes = FALSE, hjust = -0.2, size = 3.5, color = "grey30"
   ) +
-
-  # --- Add median label (center-aligned, bold)
-  ggtext::geom_richtext(
+  # Median (bold rich text)
+  geom_richtext(
     data = combined_summary,
-    aes(
-      x = median,
-      y = season_bin,
-      label = paste0("<b>", sprintf("%.1f", median), "</b>")
-    ),
-    fill = NA,
-    label.color = NA,
-    inherit.aes = FALSE,
-    size = 3.5,
-    vjust = 1.1,
-    color = "black"
+    aes(x = median, y = season_bin,
+        label = paste0("<b>", sprintf("%.1f", median), "</b>")),
+    fill = NA, label.color = NA,
+    inherit.aes = FALSE, size = 3.5, vjust = 1.1, color = "black"
   ) +
 
   labs(
-    title = "Posterior Distribution of Mean Percentage Motile",
+    title = "Posterior Distribution of Mean Percent Motile",
     x = "Estimated Mean Percent Motile (%)",
-    y = NULL,
-    fill = NULL
+    y = NULL, fill = NULL
   ) +
-  theme_classic(base_size = 14)
-
+  theme_classic(base_size = 14) +
+  theme(
+    strip.background = element_blank(),
+    strip.text = element_text(size = 14, face = "italic"),
+    panel.spacing = unit(1.2, "lines"),
+    legend.position = "right"
+  )
 
 ```
+
 
 Percent progressive
 
