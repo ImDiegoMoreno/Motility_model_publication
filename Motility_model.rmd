@@ -1791,7 +1791,6 @@ ggplot(combined_draws_prog, aes(x = .value, y = season_bin)) +
   )
 ```
 
-
 Now VAPs
 
 ```{r}
@@ -1808,6 +1807,12 @@ data_vap <- db3_max %>%
   )
 
 ```
+
+
+
+
+
+
 
 Fit models 
 Desmo
