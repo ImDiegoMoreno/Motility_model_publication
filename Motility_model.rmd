@@ -2400,3 +2400,203 @@ plot_prog_fancy
 
 ```
 
+Now Velocities
+
+```{r}
+# ======================================================================
+# Effect of Egg Presence on Motile & Progressive VAP (µm/s)
+# Difference = Egg present – Egg absent
+# ======================================================================
+
+library(dplyr)
+library(brms)
+library(tidybayes)
+library(ggplot2)
+library(ggdist)
+library(ggtext)
+
+# ---------- 0) Data prep ----------
+prepare_data_vap <- function(db, response_col) {
+  db %>%
+    filter(Species %in% c("Desmo", "Lophelia"),
+           time_after_min_round < 15,
+           !is.na(.data[[response_col]]),
+           .data[[response_col]] > 49) %>%   # keep your domain-specific filter
+    mutate(
+      egg_present = factor(egg_present, levels = c("no","yes")),
+      Species = recode(Species,
+                       "Desmo" = "D. dianthus",
+                       "Lophelia" = "D. pertusum")
+    )
+}
+
+model_data_mot_vap  <- prepare_data_vap(db3_max, "Avg_Motile_VAP")
+model_data_prog_vap <- prepare_data_vap(db3_max, "Avg_Prog_Motile_VAP")
+
+# ---------- 1) Formula ----------
+bf_vap <- bf(
+  response ~ egg_present,
+  shape ~ egg_present
+)
+
+# ---------- 2) Priors ----------
+priors_vap <- c(
+  prior(normal(4.5, 0.5), class = "Intercept"),   # log scale mean velocity ~ exp(4.5) ≈ 90 µm/s
+  prior(normal(0, 0.3), class = "b"),             # effect of egg_present
+  prior(normal(2, 1.0), class = "Intercept", dpar = "shape"), # dispersion
+  prior(normal(0, 0.3), class = "b", dpar = "shape")
+)
+
+# ---------- 3) Fit models per species ----------
+fit_species_vap <- function(data, response_col, formula, priors, seed) {
+  if (nrow(data) < 5 || n_distinct(data$egg_present) < 2) {
+    warning("Not enough data to fit model for ", unique(data$Species))
+    return(NULL)
+  }
+  data <- data %>% rename(response = !!response_col)
+  brm(
+    formula,
+    data = data,
+    family = Gamma(link = "log"),
+    prior = priors,
+    chains = 4, iter = 4000, warmup = 2000,
+    control = list(adapt_delta = 0.98, max_treedepth = 12),
+    seed = seed
+  )
+}
+
+# --- Motile VAP ---
+m_mot_vap_desmo <- fit_species_vap(filter(model_data_mot_vap, Species == "D. dianthus"),
+                                   "Avg_Motile_VAP", bf_vap, priors_vap, seed = 301)
+m_mot_vap_loph  <- fit_species_vap(filter(model_data_mot_vap, Species == "D. pertusum"),
+                                   "Avg_Motile_VAP", bf_vap, priors_vap, seed = 302)
+
+# --- Progressive VAP ---
+m_prog_vap_desmo <- fit_species_vap(filter(model_data_prog_vap, Species == "D. dianthus"),
+                                    "Avg_Prog_Motile_VAP", bf_vap, priors_vap, seed = 401)
+m_prog_vap_loph  <- fit_species_vap(filter(model_data_prog_vap, Species == "D. pertusum"),
+                                    "Avg_Prog_Motile_VAP", bf_vap, priors_vap, seed = 402)
+
+# ---------- 4) Extract posterior differences ----------
+extract_diff_vap <- function(fit, species_label) {
+  if (is.null(fit)) return(NULL)
+  lv <- levels(fit$data$egg_present)
+  newd <- data.frame(egg_present = factor(c("no","yes"), levels = lv))
+  ep <- posterior_epred(fit, newdata = newd, re_formula = NA)
+  stopifnot(ncol(ep) == 2)
+  diff <- ep[,2] - ep[,1]  # difference in µm/s
+  data.frame(Species = species_label, diff = diff)
+}
+
+# Motile VAP
+diffs_mot_vap <- bind_rows(
+  extract_diff_vap(m_mot_vap_desmo, "D. dianthus"),
+  extract_diff_vap(m_mot_vap_loph,  "D. pertusum")
+)
+
+# Progressive VAP
+diffs_prog_vap <- bind_rows(
+  extract_diff_vap(m_prog_vap_desmo, "D. dianthus"),
+  extract_diff_vap(m_prog_vap_loph,  "D. pertusum")
+)
+
+# ---------- 5) Summarise draws ----------
+summarise_diffs <- function(diffs) {
+  diffs %>%
+    group_by(Species) %>%
+    summarise(
+      median = median(diff),
+      lower  = quantile(diff, 0.025),
+      upper  = quantile(diff, 0.975),
+      .groups = "drop"
+    )
+}
+
+summary_mot_vap  <- summarise_diffs(diffs_mot_vap)
+summary_prog_vap <- summarise_diffs(diffs_prog_vap)
+
+# ---------- 6) Fancy plotting ----------
+species_cols <- c("D. dianthus" = "#9467bd", "D. pertusum" = "#f3c300")
+
+plot_diffs_fancy <- function(diffs, summary, title, xlab) {
+  ggplot(diffs, aes(x = diff, y = Species)) +
+    stat_halfeye(
+      aes(fill = Species, slab_alpha = after_stat(level)),
+      .width = c(0.66, 0.95),
+      point_interval = "median_hdi",
+      trim = TRUE
+    ) +
+    scale_fill_manual(values = species_cols) +
+    scale_slab_alpha_discrete(range = c(0.4, 0.8), guide = "none") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
+    geom_text(
+      data = summary,
+      aes(x = lower, y = Species, label = sprintf("%.1f", lower)),
+      inherit.aes = FALSE, hjust = 1.2, size = 3.5, color = "grey30"
+    ) +
+    geom_text(
+      data = summary,
+      aes(x = upper, y = Species, label = sprintf("%.1f", upper)),
+      inherit.aes = FALSE, hjust = -0.2, size = 3.5, color = "grey30"
+    ) +
+    geom_richtext(
+      data = summary,
+      aes(x = median, y = Species,
+          label = paste0("<b>", sprintf("%.1f", median), "</b>")),
+      fill = NA, label.color = NA,
+      inherit.aes = FALSE, size = 3.5, vjust = -1.0, color = "black"
+    ) +
+    labs(
+      title = title,
+      subtitle = "Difference = Egg present – Egg absent",
+      x = xlab,
+      y = "Species"
+    ) +
+    theme_classic(base_size = 14) +
+    theme(
+      strip.background = element_blank(),
+      strip.text = element_text(size = 14, face = "italic"),
+      panel.spacing = unit(1.2, "lines"),
+      legend.position = "none"
+    )
+}
+
+# ---------- 7) Final plots ----------
+plot_mot_vap_fancy <- plot_diffs_fancy(
+  diffs_mot_vap, summary_mot_vap,
+  "Posterior Distribution of Difference in Motile VAP",
+  "Difference in Motile VAP (µm/s)"
+)
+
+plot_prog_vap_fancy <- plot_diffs_fancy(
+  diffs_prog_vap, summary_prog_vap,
+  "Posterior Distribution of Difference in Progressive VAP",
+  "Difference in Progressive VAP (µm/s)"
+)
+
+plot_mot_vap_fancy
+plot_prog_vap_fancy
+
+```
+
+checking 
+
+```{r}
+# --- Inspect the data that feeds the Motile VAP models ---
+mot_vap_raw <- db3_max %>%
+  filter(Species %in% c("Desmo","Lophelia"),
+         time_after_min_round < 15,
+         !is.na(Avg_Motile_VAP),
+         Avg_Motile_VAP > 49) %>%
+  mutate(egg_present = factor(egg_present, levels = c("no","yes")))
+
+cat("\nCounts by Species (after filters):\n")
+print(table(mot_vap_raw$Species))
+
+cat("\nCounts by Species x egg_present (after filters):\n")
+print(with(mot_vap_raw, table(Species, egg_present, useNA = "ifany")))
+
+cat("\nDesmo summary of Avg_Motile_VAP (after filters):\n")
+print(summary(subset(mot_vap_raw, Species == "Desmo")$Avg_Motile_VAP))
+```
+
