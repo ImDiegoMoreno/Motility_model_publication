@@ -1865,28 +1865,28 @@ priors_loph_prog_vap <- c(
   prior(normal(0, 0.3), class = "b", dpar = "shape")
 )
 
-# ---------- 3) Fit models ----------
-brm_desmo_prog_vap <- brm(
-  bf_prog_vap, data = dat_desmo_prog_vap,
-  family  = Gamma(link = "log"),
-  prior   = priors_desmo_prog_vap,
-  chains  = 4, iter = 4000, warmup = 2000,
-  control = list(adapt_delta = 0.98, max_treedepth = 12),
-  seed    = 101
-)
-
-brm_loph_prog_vap <- brm(
-  bf_prog_vap, data = dat_loph_prog_vap,
-  family  = Gamma(link = "log"),
-  prior   = priors_loph_prog_vap,
-  chains  = 4, iter = 4000, warmup = 2000,
-  control = list(adapt_delta = 0.98, max_treedepth = 12),
-  seed    = 102
-)
+# # ---------- 3) Fit models ----------
+# brm_desmo_prog_vap <- brm(
+#   bf_prog_vap, data = dat_desmo_prog_vap,
+#   family  = Gamma(link = "log"),
+#   prior   = priors_desmo_prog_vap,
+#   chains  = 4, iter = 4000, warmup = 2000,
+#   control = list(adapt_delta = 0.98, max_treedepth = 12),
+#   seed    = 101
+# )
+# 
+# brm_loph_prog_vap <- brm(
+#   bf_prog_vap, data = dat_loph_prog_vap,
+#   family  = Gamma(link = "log"),
+#   prior   = priors_loph_prog_vap,
+#   chains  = 4, iter = 4000, warmup = 2000,
+#   control = list(adapt_delta = 0.98, max_treedepth = 12),
+#   seed    = 102
+# )
 
 # ---------- 4) Save & reload models ----------
-saveRDS(brm_desmo_prog_vap, "models/brm_desmo_prog_vap.rds")
-saveRDS(brm_loph_prog_vap,  "models/brm_loph_prog_vap.rds")
+#saveRDS(brm_desmo_prog_vap, "models/brm_desmo_prog_vap.rds")
+#saveRDS(brm_loph_prog_vap,  "models/brm_loph_prog_vap.rds")
 
 # later reuse:
 brm_desmo_prog_vap <- readRDS("models/brm_desmo_prog_vap.rds")
@@ -1977,64 +1977,179 @@ ggplot(combined_draws_prog_vap, aes(x = .value, y = season_bin)) +
 
 ```
 
+
 Now motile VAPs
 
 ```{r}
-library(dplyr)
+colnames(db3_max)
 
-data_vap <- db3_max %>%
+# ======================================================================
+# Motile VAP models for Desmo & Lophelia
+# Consistent with % and Progressive VAP models: season_bin effects on mean and shape
+# ======================================================================
+
+library(dplyr)
+library(brms)
+library(tidybayes)
+library(tidyr)
+library(ggplot2)
+library(ggtext)
+
+# ---------- 0) Data ----------
+data_mot_vap <- db3_max %>%
   filter(Species %in% c("Desmo", "Lophelia"),
-         !is.na(Avg_Prog_Motile_VAP),
-         Avg_Prog_Motile_VAP > 49,     # keep this domain-specific filter
+         !is.na(Avg_Motile_VAP),
+         Avg_Motile_VAP > 0,              # Gamma requires strictly > 0
          time_after_min_round < 15) %>%
   mutate(
-    season_bin = factor(season_bin, levels = c("start", "mid", "end")),
-    Species = factor(Species)
+    season_bin = factor(season_bin, levels = c("start","mid","end")),
+    Species    = factor(Species)
   )
 
-```
+dat_desmo_mot_vap    <- filter(data_mot_vap, Species == "Desmo")
+dat_loph_mot_vap     <- filter(data_mot_vap, Species == "Lophelia")
 
-
-
-
-
-
-
-Fit models 
-Desmo
-
-```{r}
-library(brms)
-
-vap_desmo <- data_vap %>% filter(Species == "Desmo")
-
-get_prior(Avg_Prog_Motile_VAP ~ season_bin, 
-          data = data_vap %>% filter(Species == "Desmo"), 
-          family = Gamma(link = "log"))
-
-
-
-model_vap_desmo <- brm(
-  Avg_Prog_Motile_VAP ~ season_bin,
-  data = data_vap %>% filter(Species == "Desmo"),
-  family = Gamma(link = "log"),
-  prior = c(
-  prior(normal(log(110), 0.5), class = "Intercept"),
-  prior(normal(0, 0.3), class = "b")
-  ),
-  chains = 4, iter = 4000, warmup = 2000,
-  control = list(adapt_delta = 0.95, max_treedepth = 12),
-  seed = 123
+# ---------- 1) Formula ----------
+bf_mot_vap <- bf(
+  Avg_Motile_VAP ~ season_bin,
+  shape ~ season_bin
 )
+
+# ---------- 2) Priors per species ----------
+# --- Desmo ---
+log_mean_desmo_mot_vap <- mean(log(dat_desmo_mot_vap$Avg_Motile_VAP), na.rm = TRUE)
+log_mean_desmo_mot_vap   # check value
+priors_desmo_mot_vap <- c(
+  prior(normal(3.713249, 0.5), class = "Intercept"),
+  prior(normal(0, 0.3), class = "b"),
+  prior(normal(2, 1.0), class = "Intercept", dpar = "shape"),
+  prior(normal(0, 0.3), class = "b", dpar = "shape")
+)
+
+# --- Lophelia ---
+log_mean_loph_mot_vap <- mean(log(dat_loph_mot_vap$Avg_Motile_VAP), na.rm = TRUE)
+log_mean_loph_mot_vap   # check value
+priors_loph_mot_vap <- c(
+  prior(normal(3.815233, 0.5), class = "Intercept"),
+  prior(normal(0, 0.3), class = "b"),
+  prior(normal(2, 1.0), class = "Intercept", dpar = "shape"),
+  prior(normal(0, 0.3), class = "b", dpar = "shape")
+)
+
+# ---------- 3) Fit models ----------
+brm_desmo_mot_vap <- brm(
+  bf_mot_vap, data = dat_desmo_mot_vap,
+  family  = Gamma(link = "log"),
+  prior   = priors_desmo_mot_vap,
+  chains  = 4, iter = 4000, warmup = 2000,
+  control = list(adapt_delta = 0.98, max_treedepth = 12),
+  seed    = 201
+)
+
+brm_loph_mot_vap <- brm(
+  bf_mot_vap, data = dat_loph_mot_vap,
+  family  = Gamma(link = "log"),
+  prior   = priors_loph_mot_vap,
+  chains  = 4, iter = 4000, warmup = 2000,
+  control = list(adapt_delta = 0.98, max_treedepth = 12),
+  seed    = 202
+)
+
+# ---------- 4) Save & reload models ----------
+dir.create("models", showWarnings = FALSE)
+saveRDS(brm_desmo_mot_vap, "models/brm_desmo_mot_vap.rds")
+saveRDS(brm_loph_mot_vap,  "models/brm_loph_mot_vap.rds")
+
+# later reuse:
+brm_desmo_mot_vap <- readRDS("models/brm_desmo_mot_vap.rds")
+brm_loph_mot_vap  <- readRDS("models/brm_loph_mot_vap.rds")
+
+# ---------- 5) Prior & posterior predictive checks ----------
+pp_check(brm_desmo_mot_vap, ndraws = 100, type = "dens_overlay")
+pp_check(brm_desmo_mot_vap, type = "stat_grouped", stat = "mean", group = "season_bin")
+pp_check(brm_desmo_mot_vap, type = "stat_grouped", stat = "sd", group = "season_bin")
+
+pp_check(brm_loph_mot_vap, ndraws = 100, type = "dens_overlay")
+pp_check(brm_loph_mot_vap, type = "stat_grouped", stat = "mean", group = "season_bin")
+pp_check(brm_loph_mot_vap, type = "stat_grouped", stat = "sd", group = "season_bin")
+
+# ---------- 6) Extract posterior draws ----------
+extract_mu_draws_mot_vap <- function(fit, species_name) {
+  fit %>%
+    add_linpred_draws(newdata = data.frame(season_bin = c("end","mid","start")),
+                      re_formula = NA, transform = TRUE) %>%
+    select(.draw, season_bin, .linpred) %>%
+    rename(.value = .linpred) %>%
+    mutate(Species = species_name)
+}
+
+draws_desmo_mot_vap    <- extract_mu_draws_mot_vap(brm_desmo_mot_vap, "Desmo")
+draws_loph_mot_vap     <- extract_mu_draws_mot_vap(brm_loph_mot_vap, "Lophelia")
+
+combined_draws_mot_vap <- bind_rows(draws_desmo_mot_vap, draws_loph_mot_vap)
+
+combined_summary_mot_vap <- combined_draws_mot_vap %>%
+  group_by(Species, season_bin) %>%
+  summarise(
+    median = median(.value),
+    lower  = quantile(.value, 0.025),
+    upper  = quantile(.value, 0.975),
+    .groups = "drop"
+  )
+
+# ---------- 7) Plot ----------
+species_levels <- c("Desmo", "Lophelia")
+species_labels <- c("Desmo" = "italic('D. dianthus')",
+                    "Lophelia" = "italic('D. pertusum')")
+species_colors <- c("Desmo" = "#9467bd", "Lophelia" = "#f3c300")
+
+ggplot(combined_draws_mot_vap, aes(x = .value, y = season_bin)) +
+  stat_halfeye(
+    aes(fill = Species, slab_alpha = after_stat(level)),
+    .width = c(0.66, 0.95),
+    point_interval = "median_hdi",
+    trim = TRUE
+  ) +
+  scale_fill_manual(values = species_colors, breaks = species_levels,
+                    labels = c("D. dianthus", "D. pertusum")) +
+  scale_slab_alpha_discrete(range = c(0.4, 0.8), guide = "none") +
+  facet_wrap(
+    ~ Species, ncol = 1,
+    labeller = labeller(Species = as_labeller(species_labels, default = label_parsed))
+  ) +
+  geom_text(
+    data = combined_summary_mot_vap,
+    aes(x = lower, y = season_bin, label = sprintf("%.0f", lower)),
+    inherit.aes = FALSE, hjust = 1.2, size = 3.5, color = "grey30"
+  ) +
+  geom_text(
+    data = combined_summary_mot_vap,
+    aes(x = upper, y = season_bin, label = sprintf("%.0f", upper)),
+    inherit.aes = FALSE, hjust = -0.2, size = 3.5, color = "grey30"
+  ) +
+  geom_richtext(
+    data = combined_summary_mot_vap,
+    aes(x = median, y = season_bin,
+        label = paste0("<b>", sprintf("%.0f", median), "</b>")),
+    fill = NA, label.color = NA,
+    inherit.aes = FALSE, size = 3.5, vjust = 1.1, color = "black"
+  ) +
+  labs(
+    title = "Posterior Distribution of Motile VAP by Season",
+    x = "Estimated Mean Motile VAP (µm/s)",
+    y = NULL, fill = NULL
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    strip.background = element_blank(),
+    strip.text = element_text(size = 14, face = "italic"),
+    panel.spacing = unit(1.2, "lines"),
+    legend.position = "right"
+  )
+
+
 ```
 
-check
 
-```{r}
-pp_check(model_vap_desmo, type = "stat_grouped", group = "season_bin", stat="mean",ndraws = 100)
-print(pp_check(model_vap_desmo, type = "dens_overlay", ndraws = 100))
-pp_check(model_vap_desmo)
-plot(model_vap_desmo)
 
-```
 
