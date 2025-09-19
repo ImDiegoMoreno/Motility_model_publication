@@ -2036,29 +2036,28 @@ priors_loph_mot_vap <- c(
   prior(normal(0, 0.3), class = "b", dpar = "shape")
 )
 
-# ---------- 3) Fit models ----------
-brm_desmo_mot_vap <- brm(
-  bf_mot_vap, data = dat_desmo_mot_vap,
-  family  = Gamma(link = "log"),
-  prior   = priors_desmo_mot_vap,
-  chains  = 4, iter = 4000, warmup = 2000,
-  control = list(adapt_delta = 0.98, max_treedepth = 12),
-  seed    = 201
-)
+# # ---------- 3) Fit models ----------
+# brm_desmo_mot_vap <- brm(
+#   bf_mot_vap, data = dat_desmo_mot_vap,
+#   family  = Gamma(link = "log"),
+#   prior   = priors_desmo_mot_vap,
+#   chains  = 4, iter = 4000, warmup = 2000,
+#   control = list(adapt_delta = 0.98, max_treedepth = 12),
+#   seed    = 201
+# )
+# 
+# brm_loph_mot_vap <- brm(
+#   bf_mot_vap, data = dat_loph_mot_vap,
+#   family  = Gamma(link = "log"),
+#   prior   = priors_loph_mot_vap,
+#   chains  = 4, iter = 4000, warmup = 2000,
+#   control = list(adapt_delta = 0.98, max_treedepth = 12),
+#   seed    = 202
+# )
 
-brm_loph_mot_vap <- brm(
-  bf_mot_vap, data = dat_loph_mot_vap,
-  family  = Gamma(link = "log"),
-  prior   = priors_loph_mot_vap,
-  chains  = 4, iter = 4000, warmup = 2000,
-  control = list(adapt_delta = 0.98, max_treedepth = 12),
-  seed    = 202
-)
-
-# ---------- 4) Save & reload models ----------
-dir.create("models", showWarnings = FALSE)
-saveRDS(brm_desmo_mot_vap, "models/brm_desmo_mot_vap.rds")
-saveRDS(brm_loph_mot_vap,  "models/brm_loph_mot_vap.rds")
+# # ---------- 4) Save & reload models ----------
+# saveRDS(brm_desmo_mot_vap, "models/brm_desmo_mot_vap.rds")
+# saveRDS(brm_loph_mot_vap,  "models/brm_loph_mot_vap.rds")
 
 # later reuse:
 brm_desmo_mot_vap <- readRDS("models/brm_desmo_mot_vap.rds")
@@ -2151,5 +2150,253 @@ ggplot(combined_draws_mot_vap, aes(x = .value, y = season_bin)) +
 ```
 
 
+```{r}
+library(tidybayes)
 
+# Extract posterior predictions for Desmo model
+check_draws <- brm_desmo_mot_vap %>%
+  add_linpred_draws(newdata = data.frame(season_bin = c("start","mid","end")),
+                    re_formula = NA, transform = TRUE)
+
+check_summary <- check_draws %>%
+  group_by(season_bin) %>%
+  summarise(
+    mean = mean(.linpred),
+    median = median(.linpred),
+    lower = quantile(.linpred, 0.025),
+    upper = quantile(.linpred, 0.975)
+  )
+
+print(check_summary)
+```
+
+
+```{r}
+
+table(dat_desmo_mot_vap$season_bin)
+tapply(dat_desmo_mot_vap$Avg_Motile_VAP, dat_desmo_mot_vap$season_bin, summary)
+```
+
+
+###### Egg present effect
+
+
+```{r}
+# Are both egg levels present for each species?
+model_data_check <- db3_max %>%
+  filter(Species %in% c("Desmo","Lophelia"),
+         time_after_min_round < 15) %>%
+  mutate(egg_present = factor(egg_present, levels = c("no","yes")))
+
+cat("\nCounts by species x egg_present:\n")
+print(with(model_data_check, table(Species, egg_present, useNA="ifany")))
+
+cat("\nCounts by species x egg_present (unique pairs):\n")
+tmp_pairs <- model_data_check %>%
+  mutate(pair_id = paste(Species, date, male, time_after_min_round, sep = "_")) %>%
+  distinct(Species, pair_id, egg_present)
+print(with(tmp_pairs, table(Species, egg_present, useNA="ifany")))
+
+
+```
+
+```{r}
+# Replace with your fitted objects
+fits <- list(
+  m_motile_desmo = m_motile_desmo,
+  m_motile_loph  = m_motile_loph,
+  m_prog_desmo   = m_prog_desmo,
+  m_prog_loph    = m_prog_loph
+)
+
+for(nm in names(fits)){
+  cat("\n=================", nm, "=================\n")
+  if (is.null(fits[[nm]])) { cat("MODEL IS NULL\n"); next }
+  print(summary(fits[[nm]])$fixed)   # show fixed effects; you should see an egg_present effect
+  cat("levels(egg_present) inside model:\n")
+  print(levels(fits[[nm]]$data$egg_present))
+  cat("distinct egg_present counts in model data:\n")
+  print(table(fits[[nm]]$data$egg_present, useNA="ifany"))
+}
+
+```
+
+
+```{r}
+# ======================================================================
+# Effect of Egg Presence on % Motile and % Progressive sperm
+# Difference = Egg present – Egg absent
+# ======================================================================
+
+library(dplyr)
+library(brms)
+library(tidybayes)
+library(ggplot2)
+library(ggdist)
+library(ggtext)
+
+# ---------- 0) Data prep ----------
+prepare_data <- function(db, response_col) {
+  db %>%
+    filter(Species %in% c("Desmo", "Lophelia"),
+           time_after_min_round < 15,
+           !is.na(.data[[response_col]])) %>%
+    mutate(
+      Proportion = .data[[response_col]] / 100,
+      N_obs = n(),
+      Proportion_Transformed = (Proportion * (N_obs - 1) + 0.5) / N_obs,
+      egg_present = factor(egg_present, levels = c("no","yes")),
+      Species = recode(Species,
+                       "Desmo" = "D. dianthus",
+                       "Lophelia" = "D. pertusum")
+    )
+}
+
+model_data_motile <- prepare_data(db3_max, "Percent_Motile")
+model_data_prog   <- prepare_data(db3_max, "Percent_Progressive")
+
+# ---------- 1) Formula ----------
+bf_generic <- bf(
+  Proportion_Transformed ~ egg_present,
+  phi ~ egg_present
+)
+
+# ---------- 2) Priors ----------
+priors_generic <- c(
+  prior(student_t(3, 0, 1), class = "Intercept"),
+  prior(normal(0, 0.5), class = "b"),
+  prior(normal(log(10), 1), class = "Intercept", dpar = "phi"),
+  prior(normal(0, 0.3), class = "b", dpar = "phi")
+)
+
+# ---------- 3) Fit models per species ----------
+fit_species <- function(data, formula, priors, seed) {
+  if (nrow(data) < 5 || n_distinct(data$egg_present) < 2) {
+    warning("Not enough data to fit model for ", unique(data$Species))
+    return(NULL)
+  }
+  brm(
+    formula,
+    data = data,
+    family = Beta(link = "logit", link_phi = "log"),
+    prior = priors,
+    chains = 4, iter = 4000, warmup = 2000,
+    control = list(adapt_delta = 0.98, max_treedepth = 12),
+    seed = seed
+  )
+}
+
+# --- Motile ---
+m_motile_desmo <- fit_species(filter(model_data_motile, Species == "D. dianthus"),
+                              bf_generic, priors_generic, seed = 101)
+m_motile_loph  <- fit_species(filter(model_data_motile, Species == "D. pertusum"),
+                              bf_generic, priors_generic, seed = 102)
+
+# --- Progressive ---
+m_prog_desmo <- fit_species(filter(model_data_prog, Species == "D. dianthus"),
+                            bf_generic, priors_generic, seed = 201)
+m_prog_loph  <- fit_species(filter(model_data_prog, Species == "D. pertusum"),
+                            bf_generic, priors_generic, seed = 202)
+
+# ---------- 4) Extract posterior differences ----------
+extract_diff <- function(fit, species_label) {
+  if (is.null(fit)) return(NULL)
+  lv <- levels(fit$data$egg_present)
+  newd <- data.frame(egg_present = factor(c("no","yes"), levels = lv))
+  ep <- posterior_epred(fit, newdata = newd, re_formula = NA)
+  stopifnot(ncol(ep) == 2)
+  diff <- (ep[,2] - ep[,1]) * 100
+  data.frame(Species = species_label, diff = diff)
+}
+
+# Motile
+diffs_motile <- bind_rows(
+  extract_diff(m_motile_desmo, "D. dianthus"),
+  extract_diff(m_motile_loph,  "D. pertusum")
+)
+
+# Progressive
+diffs_prog <- bind_rows(
+  extract_diff(m_prog_desmo, "D. dianthus"),
+  extract_diff(m_prog_loph,  "D. pertusum")
+)
+
+# ---------- 5) Summarise draws ----------
+summarise_diffs <- function(diffs) {
+  diffs %>%
+    group_by(Species) %>%
+    summarise(
+      median = median(diff),
+      lower  = quantile(diff, 0.025),
+      upper  = quantile(diff, 0.975),
+      .groups = "drop"
+    )
+}
+
+summary_motile <- summarise_diffs(diffs_motile)
+summary_prog   <- summarise_diffs(diffs_prog)
+
+# ---------- 6) Fancy plotting function ----------
+species_cols <- c("D. dianthus" = "#9467bd", "D. pertusum" = "#f3c300")
+
+plot_diffs_fancy <- function(diffs, summary, title, xlab) {
+  ggplot(diffs, aes(x = diff, y = Species)) +
+    stat_halfeye(
+      aes(fill = Species, slab_alpha = after_stat(level)),
+      .width = c(0.66, 0.95),
+      point_interval = "median_hdi",
+      trim = TRUE
+    ) +
+    scale_fill_manual(values = species_cols) +
+    scale_slab_alpha_discrete(range = c(0.4, 0.8), guide = "none") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
+    geom_text(
+      data = summary,
+      aes(x = lower, y = Species, label = sprintf("%.1f", lower)),
+      inherit.aes = FALSE, hjust = 1.2, size = 3.5, color = "grey30"
+    ) +
+    geom_text(
+      data = summary,
+      aes(x = upper, y = Species, label = sprintf("%.1f", upper)),
+      inherit.aes = FALSE, hjust = -0.2, size = 3.5, color = "grey30"
+    ) +
+    geom_richtext(
+      data = summary,
+      aes(x = median, y = Species,
+          label = paste0("<b>", sprintf("%.1f", median), "</b>")),
+      fill = NA, label.color = NA,
+      inherit.aes = FALSE, size = 3.5, vjust = -1.0, color = "black"
+    ) +
+    labs(
+      title = title,
+      subtitle = "Difference = Egg present – Egg absent",
+      x = xlab,
+      y = "Species"
+    ) +
+    theme_classic(base_size = 14) +
+    theme(
+      strip.background = element_blank(),
+      strip.text = element_text(size = 14, face = "italic"),
+      panel.spacing = unit(1.2, "lines"),
+      legend.position = "none"
+    )
+}
+
+# ---------- 7) Final plots ----------
+plot_motile_fancy <- plot_diffs_fancy(
+  diffs_motile, summary_motile,
+  "Posterior Distribution of Difference in % Motile Sperm",
+  "Difference in % Motile"
+)
+
+plot_prog_fancy <- plot_diffs_fancy(
+  diffs_prog, summary_prog,
+  "Posterior Distribution of Difference in % Progressive Sperm",
+  "Difference in % Progressive"
+)
+
+plot_motile_fancy
+plot_prog_fancy
+
+```
 
