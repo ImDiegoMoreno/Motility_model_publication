@@ -1598,28 +1598,36 @@ obs_mean_prog_loph <- mean(model_data_beta_prog_lophelia$Proportion_Progressive,
 logit_mean_prog_loph <- qlogis(obs_mean_prog_loph)
 logit_mean_prog_loph  # check the value (e.g. ~ -1.40)
 
-# --- 3. Priors (regularising, same structure as motility models) ---
-priors_prog_loph <- c(
-  # Mean (mu) part
-  prior(student_t(3, -1.404282, 1), class = "Intercept"),
-  prior(normal(0, 0.75), class = "b"),
-
-  # Phi (precision) part on log scale
-  prior(normal(log(10), 1), class = "Intercept", dpar = "phi"),
-  prior(normal(0, 0.3), class = "b", dpar = "phi")
-)
-
-# --- 4. Fit model ---
-m_beta_prog_loph <- brm(
-  formula = bf_beta_prog_loph,
-  data    = model_data_beta_prog_lophelia,
-  family  = Beta(link = "logit", link_phi = "log"),  # <- log link for phi
-  prior   = priors_prog_loph,
-  chains  = 4, iter = 4000, warmup = 2000,
-  control = list(adapt_delta = 0.98, max_treedepth = 12),
-  seed    = 42
-)
+# # --- 3. Priors (regularising, same structure as motility models) ---
+# priors_prog_loph <- c(
+#   # Mean (mu) part
+#   prior(student_t(3, -1.404282, 1), class = "Intercept"),
+#   prior(normal(0, 0.75), class = "b"),
+# 
+#   # Phi (precision) part on log scale
+#   prior(normal(log(10), 1), class = "Intercept", dpar = "phi"),
+#   prior(normal(0, 0.3), class = "b", dpar = "phi")
+# )
+# 
+# # --- 4. Fit model ---
+# m_beta_prog_loph <- brm(
+#   formula = bf_beta_prog_loph,
+#   data    = model_data_beta_prog_lophelia,
+#   family  = Beta(link = "logit", link_phi = "log"),  # <- log link for phi
+#   prior   = priors_prog_loph,
+#   chains  = 4, iter = 4000, warmup = 2000,
+#   control = list(adapt_delta = 0.98, max_treedepth = 12),
+#   seed    = 42
+# )
 ```
+
+save
+
+```{r}
+#saveRDS(m_beta_prog_loph, file = "models/m_beta_prog_loph.rds")
+m_beta_prog_loph <- readRDS("models/m_beta_prog_loph.rds")
+```
+
 
 checks
 
@@ -1689,6 +1697,14 @@ m_beta_prog_desmo <- brm(
 )
 
 ```
+save
+
+```{r}
+#saveRDS(m_beta_prog_desmo, file = "models/m_beta_prog_desmo.rds")
+m_beta_prog_desmo <- readRDS("models/m_beta_prog_desmo.rds")
+```
+
+
 checks
 
 ```{r}
@@ -1790,6 +1806,8 @@ ggplot(combined_draws_prog, aes(x = .value, y = season_bin)) +
     legend.position = "right"
   )
 ```
+
+
 
 Now VAPs
 
