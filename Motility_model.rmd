@@ -1273,17 +1273,17 @@ Model (Commented out so it does not run everytime)
 obs_mean <- mean(model_data_beta$Proportion_Motile, na.rm = TRUE)
 logit_mean <- qlogis(obs_mean)   # = -1.857484
 
-# # --- Priors (regularising) ---
-# priors_recommended <- c(
-#   # Mean (mu) part on logit scale
-#   prior(student_t(3, -1.8575, 1), class = "Intercept"),
-#   prior(normal(0, 0.75), class = "b"),
-# 
-#   # Phi (precision) part on log scale
-#   prior(normal(log(10), 1), class = "Intercept", dpar = "phi"),  # median φ ≈ 10, 95% ≈ [1.4, 71]
-#   prior(normal(0, 0.3), class = "b", dpar = "phi")
-# )
-# 
+# --- Priors (regularising) ---
+priors_recommended <- c(
+  # Mean (mu) part on logit scale
+  prior(student_t(3, -1.8575, 1), class = "Intercept"),
+  prior(normal(0, 0.75), class = "b"),
+
+  # Phi (precision) part on log scale
+  prior(normal(log(10), 1), class = "Intercept", dpar = "phi"),  # median φ ≈ 10, 95% ≈ [1.4, 71]
+  prior(normal(0, 0.3), class = "b", dpar = "phi")
+)
+
 # # --- Check priors ---
 # get_prior(bf_beta_het, data = model_data_beta,
 #           family = Beta(link = "logit", link_phi = "log"))
@@ -1298,7 +1298,7 @@ logit_mean <- qlogis(obs_mean)   # = -1.857484
 #   control = list(adapt_delta = 0.98, max_treedepth = 12),
 #   seed    = 5678
 # )
-# 
+
 
 
 ```
@@ -1380,22 +1380,22 @@ Model commented out for rerunning the code
 ```{r}
 
 
-# # --- 3. Priors (reuse same as Lophelia, just adjust intercept if you want) ---
-# priors_beta_het_desmo <- c(
-#   prior(student_t(3, -1.679086, 1), class = "Intercept"), # or recompute logit mean for Desmo
-#   prior(normal(0, 0.75), class = "b"),
-#   # Phi (precision) part on log scale
-#   prior(normal(log(10), 1), class = "Intercept", dpar = "phi"),  # median φ ≈ 10, 95% ≈ [1.4, 71]
-#   prior(normal(0, 0.3), class = "b", dpar = "phi")
-# )
-# 
-# # Just ask: what priors does this model expect?
-# get_prior(
-#   formula = bf_beta_het_desmo, 
-#   data    = model_data_beta_desmo,
-#   family  = Beta(link = "logit", link_phi = "log")
-# )
-# 
+# --- 3. Priors (reuse same as Lophelia, just adjust intercept if you want) ---
+priors_beta_het_desmo <- c(
+  prior(student_t(3, -1.679086, 1), class = "Intercept"), # or recompute logit mean for Desmo
+  prior(normal(0, 0.75), class = "b"),
+  # Phi (precision) part on log scale
+  prior(normal(log(10), 1), class = "Intercept", dpar = "phi"),  # median φ ≈ 10, 95% ≈ [1.4, 71]
+  prior(normal(0, 0.3), class = "b", dpar = "phi")
+)
+
+# Just ask: what priors does this model expect?
+get_prior(
+  formula = bf_beta_het_desmo,
+  data    = model_data_beta_desmo,
+  family  = Beta(link = "logit", link_phi = "log")
+)
+
 # # --- 4. Fit the model ---
 # brm_ml_Desmo_beta <- brm(
 #   formula = bf_beta_het_desmo,
@@ -1686,15 +1686,15 @@ priors_prog_desmo <- c(
 )
 
 # --- 4. Fit model ---
-m_beta_prog_desmo <- brm(
-  formula = bf_beta_prog_desmo,
-  data    = model_data_beta_prog_desmo,
-  family  = Beta(link = "logit", link_phi = "log"),  # <- log link for phi
-  prior   = priors_prog_desmo,
-  chains  = 4, iter = 4000, warmup = 2000,
-  control = list(adapt_delta = 0.98, max_treedepth = 12),
-  seed    = 42
-)
+# m_beta_prog_desmo <- brm(
+#   formula = bf_beta_prog_desmo,
+#   data    = model_data_beta_prog_desmo,
+#   family  = Beta(link = "logit", link_phi = "log"),  # <- log link for phi
+#   prior   = priors_prog_desmo,
+#   chains  = 4, iter = 4000, warmup = 2000,
+#   control = list(adapt_delta = 0.98, max_treedepth = 12),
+#   seed    = 42
+# )
 
 ```
 save
@@ -1809,7 +1809,175 @@ ggplot(combined_draws_prog, aes(x = .value, y = season_bin)) +
 
 
 
-Now VAPs
+VAPs
+
+```{r}
+# ======================================================================
+# Progressive Motile VAP models for Desmo & Lophelia
+# Consistent with % models: season_bin effects on mean and shape
+# ======================================================================
+
+library(dplyr)
+library(brms)
+library(tidybayes)
+library(tidyr)
+library(ggplot2)
+library(ggtext)
+
+# ---------- 0) Data ----------
+data_prog_vap <- db3_max %>%
+  filter(Species %in% c("Desmo", "Lophelia"),
+         !is.na(Avg_Prog_Motile_VAP),
+         Avg_Prog_Motile_VAP > 49,            # domain-specific filter
+         time_after_min_round < 15) %>%
+  mutate(
+    season_bin = factor(season_bin, levels = c("start","mid","end")),
+    Species    = factor(Species)
+  )
+
+dat_desmo_prog_vap    <- filter(data_prog_vap, Species == "Desmo")
+dat_loph_prog_vap     <- filter(data_prog_vap, Species == "Lophelia")
+
+# ---------- 1) Formula ----------
+bf_prog_vap <- bf(
+  Avg_Prog_Motile_VAP ~ season_bin,
+  shape ~ season_bin
+)
+
+# ---------- 2) Priors per species ----------
+# --- Desmo ---
+log_mean_desmo_prog_vap <- mean(log(dat_desmo_prog_vap$Avg_Prog_Motile_VAP), na.rm = TRUE)
+log_mean_desmo_prog_vap   # check value
+priors_desmo_prog_vap <- c(
+  prior(normal(4.795604, 0.5), class = "Intercept"),
+  prior(normal(0, 0.3), class = "b"),
+  prior(normal(2, 1.0), class = "Intercept", dpar = "shape"),
+  prior(normal(0, 0.3), class = "b", dpar = "shape")
+)
+
+# --- Lophelia ---
+log_mean_loph_prog_vap <- mean(log(dat_loph_prog_vap$Avg_Prog_Motile_VAP), na.rm = TRUE)
+log_mean_loph_prog_vap   # check value
+priors_loph_prog_vap <- c(
+  prior(normal(4.655517, 0.5), class = "Intercept"),
+  prior(normal(0, 0.3), class = "b"),
+  prior(normal(2, 1.0), class = "Intercept", dpar = "shape"),
+  prior(normal(0, 0.3), class = "b", dpar = "shape")
+)
+
+# ---------- 3) Fit models ----------
+brm_desmo_prog_vap <- brm(
+  bf_prog_vap, data = dat_desmo_prog_vap,
+  family  = Gamma(link = "log"),
+  prior   = priors_desmo_prog_vap,
+  chains  = 4, iter = 4000, warmup = 2000,
+  control = list(adapt_delta = 0.98, max_treedepth = 12),
+  seed    = 101
+)
+
+brm_loph_prog_vap <- brm(
+  bf_prog_vap, data = dat_loph_prog_vap,
+  family  = Gamma(link = "log"),
+  prior   = priors_loph_prog_vap,
+  chains  = 4, iter = 4000, warmup = 2000,
+  control = list(adapt_delta = 0.98, max_treedepth = 12),
+  seed    = 102
+)
+
+# ---------- 4) Save & reload models ----------
+saveRDS(brm_desmo_prog_vap, "models/brm_desmo_prog_vap.rds")
+saveRDS(brm_loph_prog_vap,  "models/brm_loph_prog_vap.rds")
+
+# later reuse:
+brm_desmo_prog_vap <- readRDS("models/brm_desmo_prog_vap.rds")
+brm_loph_prog_vap  <- readRDS("models/brm_loph_prog_vap.rds")
+
+# ---------- 5) Prior & posterior predictive checks ----------
+pp_check(brm_desmo_prog_vap, ndraws = 100, type = "dens_overlay")
+pp_check(brm_desmo_prog_vap, type = "stat_grouped", stat = "mean", group = "season_bin")
+pp_check(brm_desmo_prog_vap, type = "stat_grouped", stat = "sd", group = "season_bin")
+
+pp_check(brm_loph_prog_vap, ndraws = 100, type = "dens_overlay")
+pp_check(brm_loph_prog_vap, type = "stat_grouped", stat = "mean", group = "season_bin")
+pp_check(brm_loph_prog_vap, type = "stat_grouped", stat = "sd", group = "season_bin")
+
+# ---------- 6) Extract posterior draws ----------
+extract_mu_draws_prog_vap <- function(fit, species_name) {
+  fit %>%
+    add_linpred_draws(newdata = data.frame(season_bin = c("end","mid","start")),
+                      re_formula = NA, transform = TRUE) %>%
+    select(.draw, season_bin, .linpred) %>%
+    rename(.value = .linpred) %>%
+    mutate(Species = species_name)
+}
+
+draws_desmo_prog_vap    <- extract_mu_draws_prog_vap(brm_desmo_prog_vap, "Desmo")
+draws_loph_prog_vap     <- extract_mu_draws_prog_vap(brm_loph_prog_vap, "Lophelia")
+
+combined_draws_prog_vap <- bind_rows(draws_desmo_prog_vap, draws_loph_prog_vap)
+
+combined_summary_prog_vap <- combined_draws_prog_vap %>%
+  group_by(Species, season_bin) %>%
+  summarise(
+    median = median(.value),
+    lower  = quantile(.value, 0.025),
+    upper  = quantile(.value, 0.975),
+    .groups = "drop"
+  )
+
+# ---------- 7) Plot ----------
+species_levels <- c("Desmo", "Lophelia")
+species_labels <- c("Desmo" = "italic('D. dianthus')",
+                    "Lophelia" = "italic('D. pertusum')")
+species_colors <- c("Desmo" = "#9467bd", "Lophelia" = "#f3c300")
+
+ggplot(combined_draws_prog_vap, aes(x = .value, y = season_bin)) +
+  stat_halfeye(
+    aes(fill = Species, slab_alpha = after_stat(level)),
+    .width = c(0.66, 0.95),
+    point_interval = "median_hdi",
+    trim = TRUE
+  ) +
+  scale_fill_manual(values = species_colors, breaks = species_levels,
+                    labels = c("D. dianthus", "D. pertusum")) +
+  scale_slab_alpha_discrete(range = c(0.4, 0.8), guide = "none") +
+  facet_wrap(
+    ~ Species, ncol = 1,
+    labeller = labeller(Species = as_labeller(species_labels, default = label_parsed))
+  ) +
+  geom_text(
+    data = combined_summary_prog_vap,
+    aes(x = lower, y = season_bin, label = sprintf("%.0f", lower)),
+    inherit.aes = FALSE, hjust = 1.2, size = 3.5, color = "grey30"
+  ) +
+  geom_text(
+    data = combined_summary_prog_vap,
+    aes(x = upper, y = season_bin, label = sprintf("%.0f", upper)),
+    inherit.aes = FALSE, hjust = -0.2, size = 3.5, color = "grey30"
+  ) +
+  geom_richtext(
+    data = combined_summary_prog_vap,
+    aes(x = median, y = season_bin,
+        label = paste0("<b>", sprintf("%.0f", median), "</b>")),
+    fill = NA, label.color = NA,
+    inherit.aes = FALSE, size = 3.5, vjust = 1.1, color = "black"
+  ) +
+  labs(
+    title = "Posterior Distribution of Progressive Motile VAP by Season",
+    x = "Estimated Mean Progressive VAP (µm/s)",
+    y = NULL, fill = NULL
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    strip.background = element_blank(),
+    strip.text = element_text(size = 14, face = "italic"),
+    panel.spacing = unit(1.2, "lines"),
+    legend.position = "right"
+  )
+
+```
+
+Now motile VAPs
 
 ```{r}
 library(dplyr)
